@@ -156,8 +156,8 @@
 
 ## 7. 相关文件
 
-- [README.md](/Users/lyx/Desktop/opensearch/README.md)
-- [docs/DEVELOPER_GUIDE.md](/Users/lyx/Desktop/opensearch/docs/DEVELOPER_GUIDE.md)
-- [api_server/endpoints/mcp.py](/Users/lyx/Desktop/opensearch/api_server/endpoints/mcp.py)
-- [api_server/endpoints/tokens.py](/Users/lyx/Desktop/opensearch/api_server/endpoints/tokens.py)
-- [api_server/services/token_service.py](/Users/lyx/Desktop/opensearch/api_server/services/token_service.py)
+- [README](../README.md)
+- [二次开发指南](DEVELOPER_GUIDE.md)
+- `api_server/endpoints/mcp.py`
+- `api_server/endpoints/tokens.py`
+- `api_server/services/token_service.py`

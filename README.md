@@ -62,8 +62,8 @@ bash deployment/scripts/release_check.sh
 ```
 
 详细交付说明见：
-- [docs/RELEASE_GUIDE.md](/Users/lyx/Desktop/opensearch/docs/RELEASE_GUIDE.md)
-- [docs/AGENT_INTEGRATION.md](/Users/lyx/Desktop/opensearch/docs/AGENT_INTEGRATION.md)
+- [发布指南](docs/RELEASE_GUIDE.md)
+- [Agent 接入指南](docs/AGENT_INTEGRATION.md)
 
 ---
 
@@ -198,7 +198,7 @@ GET  /mcp/prompts            列出提示词
 - `opencode`/通用 JSON-RPC 客户端优先推荐 `POST /mcp/jsonrpc`
 - 如需兼容旧式流式客户端，再考虑 `SSE`
 - `opencode`、`OpenClaw` 这类 Agent 的完整接入方式见：
-  [docs/AGENT_INTEGRATION.md](/Users/lyx/Desktop/opensearch/docs/AGENT_INTEGRATION.md)
+  [Agent 接入指南](docs/AGENT_INTEGRATION.md)
 
 ### 手动调用示例
 
@@ -350,9 +350,9 @@ admin_ui/       Web 管理界面（3 个静态文件，无需构建）
 
 推荐先看：
 
-- [docs/DEVELOPER_GUIDE.md](/Users/lyx/Desktop/opensearch/docs/DEVELOPER_GUIDE.md)
-- [docs/AGENT_INTEGRATION.md](/Users/lyx/Desktop/opensearch/docs/AGENT_INTEGRATION.md)
-- [docs/RELEASE_GUIDE.md](/Users/lyx/Desktop/opensearch/docs/RELEASE_GUIDE.md)
+- [二次开发指南](docs/DEVELOPER_GUIDE.md)
+- [Agent 接入指南](docs/AGENT_INTEGRATION.md)
+- [发布指南](docs/RELEASE_GUIDE.md)
 
 覆盖内容包括：
 
@@ -360,10 +360,12 @@ admin_ui/       Web 管理界面（3 个静态文件，无需构建）
 - 前端、REST、MCP 参数映射
 - 搜索主流程扩展点
 - 新增 `source_profile` / 新增搜索策略的接入步骤
+- Token / MCP 鉴权与调用审计
+- 管理台配置项与 `.env` 的对应关系
 
 ## 交付建议
 
-推送 GitHub 前建议确认：
+发布或二次分发前建议确认：
 
 1. `.env` 未被提交
 2. `data/`、`logs/`、`chroma_db/`、`chroma_db_cache/` 未被提交
@@ -374,32 +376,45 @@ admin_ui/       Web 管理界面（3 个静态文件，无需构建）
 - **SearXNG**（端口 8080）：元搜索引擎
 - **LightPanda**（端口 9222）：无头浏览器
 
-```
+```text
 opensearch/
-├── .env                    # 环境配置
-├── start.sh                # 统一启动脚本
-├── requirements.txt        # Python 依赖
-├── docker-compose.yml      # Docker 服务编排
-├── my_ai_search/           # 核心搜索库
-│   ├── main.py             #   search_ai() 主入口
-│   ├── config.py           #   配置管理
-│   ├── search/             #   SearXNG 搜索
-│   ├── fetch/              #   网页抓取（aiohttp + LightPanda）
-│   ├── process/            #   文本切分
-│   ├── deep_process/       #   质量过滤 / 去重 / 摘要
-│   ├── vector/             #   ChromaDB 向量操作
-│   └── cache/              #   网页缓存
-├── api_server/             # API 服务
-│   ├── main.py             #   FastAPI 入口
-│   ├── endpoints/          #   路由（search, config, vector, cache, logs, mcp）
-│   ├── services/           #   业务逻辑
-│   ├── models/             #   请求/响应模型
-│   └── middleware/         #   认证 / 日志 / 限流
-├── admin_ui/               # Web 界面（纯静态）
+├── .env.example                  # 默认环境配置模板
+├── start.sh                      # 本地开发启动脚本
+├── requirements.txt              # 核心 Python 依赖
+├── requirements-api.txt          # API / MCP 额外依赖
+├── docker-compose.yml            # 外部服务编排
+├── deployment/                   # 部署脚本与 Docker/Nginx 配置
+├── docs/                         # 发布、二开、Agent 接入文档
+├── searxng/                      # SearXNG 本地配置
+├── my_ai_search/                 # 核心搜索库
+│   ├── main.py                   # search_ai / search_ai_async 主入口
+│   ├── config.py                 # 搜索配置管理
+│   ├── search/                   # SearXNG 搜索与重排
+│   ├── fetch/                    # 网页抓取（aiohttp + LightPanda）
+│   ├── process/                  # 正文清洗与切分
+│   ├── deep_process/             # 质量过滤 / 去重 / 摘要
+│   ├── vector/                   # ChromaDB 向量操作
+│   ├── cache/                    # 网页缓存
+│   └── utils/                    # 路径、文本、OpenAI 兼容工具
+├── api_server/                   # FastAPI + MCP 服务
+│   ├── main.py                   # 服务入口
+│   ├── endpoints/                # REST / MCP 路由
+│   ├── services/                 # 业务逻辑
+│   ├── models/                   # 请求 / 响应模型
+│   ├── middleware/               # 认证 / 日志 / 限流
+│   └── utils/                    # MCP 协议与通用工具
+├── admin_ui/                     # Web 管理台（纯静态文件）
 │   ├── index.html
 │   ├── style.css
 │   └── app.js
-├── chroma_db/              # 向量库数据（自动生成）
-├── logs/                   # 日志（自动生成）
-└── data/                   # SQLite 日志库（自动生成）
+├── scripts/                      # 辅助测试脚本
+└── data/                         # 默认运行数据目录（自动生成）
+    ├── logs/
+    ├── chroma_db/
+    ├── chroma_db_cache/
+    └── logs.db
 ```
+
+说明：
+- 仓库根目录下如果存在 `logs/`、`chroma_db/`、`chroma_db_cache/`，通常是早期运行遗留目录，已默认加入忽略。
+- 当前推荐的运行数据目录是 `data/`，可通过 `.env` 中的 `OPENSEARCH_DATA_DIR` 调整。

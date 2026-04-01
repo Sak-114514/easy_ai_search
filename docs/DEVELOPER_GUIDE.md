@@ -24,11 +24,11 @@
 
 关键入口：
 
-- [my_ai_search/main.py](/Users/lyx/Desktop/opensearch/my_ai_search/main.py)
-- [my_ai_search/search/search.py](/Users/lyx/Desktop/opensearch/my_ai_search/search/search.py)
-- [my_ai_search/process/process.py](/Users/lyx/Desktop/opensearch/my_ai_search/process/process.py)
-- [my_ai_search/deep_process/deep_process.py](/Users/lyx/Desktop/opensearch/my_ai_search/deep_process/deep_process.py)
-- [my_ai_search/deep_process/summary_provider.py](/Users/lyx/Desktop/opensearch/my_ai_search/deep_process/summary_provider.py)
+- `my_ai_search/main.py`
+- `my_ai_search/search/search.py`
+- `my_ai_search/process/process.py`
+- `my_ai_search/deep_process/deep_process.py`
+- `my_ai_search/deep_process/summary_provider.py`
 
 ### API / MCP 层
 
@@ -43,11 +43,11 @@
 
 关键入口：
 
-- [api_server/main.py](/Users/lyx/Desktop/opensearch/api_server/main.py)
-- [api_server/endpoints/search.py](/Users/lyx/Desktop/opensearch/api_server/endpoints/search.py)
-- [api_server/services/search_service.py](/Users/lyx/Desktop/opensearch/api_server/services/search_service.py)
-- [api_server/services/mcp_tool_handler.py](/Users/lyx/Desktop/opensearch/api_server/services/mcp_tool_handler.py)
-- [api_server/services/config_service.py](/Users/lyx/Desktop/opensearch/api_server/services/config_service.py)
+- `api_server/main.py`
+- `api_server/endpoints/search.py`
+- `api_server/services/search_service.py`
+- `api_server/services/mcp_tool_handler.py`
+- `api_server/services/config_service.py`
 
 ### 管理前端
 
@@ -64,8 +64,8 @@
 
 关键入口：
 
-- [admin_ui/index.html](/Users/lyx/Desktop/opensearch/admin_ui/index.html)
-- [admin_ui/app.js](/Users/lyx/Desktop/opensearch/admin_ui/app.js)
+- `admin_ui/index.html`
+- `admin_ui/app.js`
 
 ## 2. 模型切换说明
 
@@ -86,9 +86,9 @@
 
 相关代码：
 
-- [my_ai_search/config.py](/Users/lyx/Desktop/opensearch/my_ai_search/config.py)
-- [api_server/services/config_service.py](/Users/lyx/Desktop/opensearch/api_server/services/config_service.py)
-- [admin_ui/app.js](/Users/lyx/Desktop/opensearch/admin_ui/app.js)
+- `my_ai_search/config.py`
+- `api_server/services/config_service.py`
+- `admin_ui/app.js`
 
 推荐切换方式：
 
@@ -121,9 +121,9 @@
 
 相关代码：
 
-- [my_ai_search/deep_process/summary_provider.py](/Users/lyx/Desktop/opensearch/my_ai_search/deep_process/summary_provider.py)
-- [my_ai_search/deep_process/deep_process.py](/Users/lyx/Desktop/opensearch/my_ai_search/deep_process/deep_process.py)
-- [api_server/services/config_service.py](/Users/lyx/Desktop/opensearch/api_server/services/config_service.py)
+- `my_ai_search/deep_process/summary_provider.py`
+- `my_ai_search/deep_process/deep_process.py`
+- `api_server/services/config_service.py`
 
 推荐实践：
 
@@ -175,10 +175,10 @@
 
 动态 token 的实现位置：
 
-- [api_server/services/token_service.py](/Users/lyx/Desktop/opensearch/api_server/services/token_service.py)
-- [api_server/endpoints/tokens.py](/Users/lyx/Desktop/opensearch/api_server/endpoints/tokens.py)
-- [api_server/middleware/auth.py](/Users/lyx/Desktop/opensearch/api_server/middleware/auth.py)
-- [api_server/middleware/logging.py](/Users/lyx/Desktop/opensearch/api_server/middleware/logging.py)
+- `api_server/services/token_service.py`
+- `api_server/endpoints/tokens.py`
+- `api_server/middleware/auth.py`
+- `api_server/middleware/logging.py`
 
 日志归属字段：
 
@@ -227,13 +227,13 @@
 如需增加新的 `source_profile`：
 
 1. 在 REST 请求模型中新增枚举
-   - [api_server/models/requests.py](/Users/lyx/Desktop/opensearch/api_server/models/requests.py)
+   - `api_server/models/requests.py`
 2. 在 MCP schema 中新增枚举
-   - [api_server/services/mcp_tool_handler.py](/Users/lyx/Desktop/opensearch/api_server/services/mcp_tool_handler.py)
+   - `api_server/services/mcp_tool_handler.py`
 3. 在搜索排序逻辑中实现 profile 评分
-   - [my_ai_search/search/search.py](/Users/lyx/Desktop/opensearch/my_ai_search/search/search.py)
+   - `my_ai_search/search/search.py`
 4. 在前端增加对应选项/预设
-   - [admin_ui/app.js](/Users/lyx/Desktop/opensearch/admin_ui/app.js)
+   - `admin_ui/app.js`
 5. 补测试
    - `my_ai_search/tests/test_search.py`
    - `api_server/tests/test_api_integration.py`
