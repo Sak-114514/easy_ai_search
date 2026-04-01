@@ -23,7 +23,7 @@ bash deployment/scripts/deploy.sh
 - API 文档：`http://127.0.0.1:8000/docs`
 - MCP JSON-RPC：`http://127.0.0.1:8000/mcp/jsonrpc`
 
-### 方式 B：本地开发启动
+### 方式 B：本地手动启动
 
 ### 1. 安装依赖 & 启动外部服务
 
@@ -187,7 +187,7 @@ GET  /mcp/prompts            列出提示词
 ```json
 {
   "mcpServers": {
-    "opensearch": {
+    "easy_ai_search": {
       "url": "http://localhost:8000/mcp/jsonrpc"
     }
   }
@@ -377,9 +377,9 @@ admin_ui/       Web 管理界面（3 个静态文件，无需构建）
 - **LightPanda**（端口 9222）：无头浏览器
 
 ```text
-opensearch/
+easy_ai_search/
 ├── .env.example                  # 默认环境配置模板
-├── start.sh                      # 本地开发启动脚本
+├── start.sh                      # 本地手动启动脚本
 ├── requirements.txt              # 核心 Python 依赖
 ├── requirements-api.txt          # API / MCP 额外依赖
 ├── docker-compose.yml            # 外部服务编排

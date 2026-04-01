@@ -1,5 +1,5 @@
 #!/bin/bash
-# OpenSearch 统一启动脚本
+# easy_ai_search 统一启动脚本
 # 用法: bash start.sh [api|search|stop|status]
 
 set -e

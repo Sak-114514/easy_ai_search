@@ -12,7 +12,7 @@ router = APIRouter()
 async def health_check():
     """健康检查"""
     # TODO: 实现依赖服务检查
-    return {"status": "healthy", "service": "OpenSearch API", "version": "2.0.0"}
+    return {"status": "healthy", "service": "easy_ai_search API", "version": "2.0.0"}
 
 
 @router.get("/stats")

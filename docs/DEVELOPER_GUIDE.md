@@ -1,6 +1,6 @@
-# OpenSearch 二次开发指南
+# easy_ai_search 二次开发指南
 
-本文档面向准备继续扩展 OpenSearch 的开发者，重点覆盖：
+本文档面向准备继续扩展 easy_ai_search 的开发者，重点覆盖：
 
 - 嵌入模型与摘要模型如何切换
 - 配置、前端、REST、MCP 的对应关系

@@ -1,7 +1,7 @@
 """
 搜索服务
 
-封装 OpenSearch 核心搜索功能
+封装 easy_ai_search 核心搜索功能
 """
 
 import asyncio

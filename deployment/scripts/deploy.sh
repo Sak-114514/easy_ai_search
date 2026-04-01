@@ -33,7 +33,7 @@ docker compose up -d searxng lightpanda api
 echo "等待 API 健康检查..."
 for i in $(seq 1 30); do
   if curl -fsS "http://127.0.0.1:8000/health" >/dev/null 2>&1; then
-    echo "OpenSearch API 已可用: http://127.0.0.1:8000"
+    echo "easy_ai_search API 已可用: http://127.0.0.1:8000"
     echo "管理台: http://127.0.0.1:8000/admin/"
     echo "Swagger: http://127.0.0.1:8000/docs"
     exit 0

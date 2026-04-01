@@ -42,7 +42,7 @@
 ```json
 {
   "mcp": {
-    "opensearch-local": {
+    "easy-ai-search-local": {
       "type": "remote",
       "url": "http://127.0.0.1:8000/mcp/jsonrpc",
       "headers": {

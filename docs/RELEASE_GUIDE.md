@@ -1,4 +1,4 @@
-# OpenSearch 交付指南
+# easy_ai_search 交付指南
 
 本文档面向第一次部署或准备发布到 GitHub 的维护者。
 
@@ -69,7 +69,7 @@ CORS_ORIGINS=http://localhost:8000
 docker compose --profile edge up -d nginx
 ```
 
-## 4. 本地开发环境
+## 4. 本地手动运行
 
 ```bash
 pip install -r requirements.txt

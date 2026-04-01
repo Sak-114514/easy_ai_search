@@ -95,7 +95,7 @@ class TestAPIIntegration:
 
         assert response.status_code == 200
         data = response.json()
-        assert data["message"] == "OpenSearch API"
+        assert data["message"] == "easy_ai_search API"
         assert data["docs"] == "/docs"
         assert data["health"] == "/health"
 

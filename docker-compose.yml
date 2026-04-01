@@ -1,10 +1,12 @@
+name: easy_ai_search
+
 services:
-  # OpenSearch API Server
+  # easy_ai_search API Server
   api:
     build:
       context: .
       dockerfile: deployment/docker/Dockerfile.api
-    container_name: opensearch-api
+    container_name: easy-ai-search-api
     ports:
       - "8000:8000"
     environment:
@@ -29,11 +31,11 @@ services:
   # SearXNG
   searxng:
     image: searxng/searxng:latest
-    container_name: opensearch-searxng
+    container_name: easy-ai-search-searxng
     ports:
       - "8080:8080"
     environment:
-      - SEARXNG_SECRET=${SEARXNG_SECRET:-opensearch-searxng-secret-change-me}
+      - SEARXNG_SECRET=${SEARXNG_SECRET:-easy-ai-search-searxng-secret-change-me}
       - SEARXNG_BASE_URL=http://localhost:8080/
     volumes:
       - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
@@ -42,7 +44,7 @@ services:
   # LightPanda
   lightpanda:
     image: lightpanda/browser:latest
-    container_name: opensearch-lightpanda
+    container_name: easy-ai-search-lightpanda
     ports:
       - "9222:9222"
     restart: unless-stopped
@@ -50,7 +52,7 @@ services:
   # Nginx (可选）
   nginx:
     image: nginx:alpine
-    container_name: opensearch-nginx
+    container_name: easy-ai-search-nginx
     ports:
       - "80:80"
       - "443:443"
@@ -64,4 +66,4 @@ services:
 
 networks:
   default:
-    name: opensearch-network
+    name: easy-ai-search-network

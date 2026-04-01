@@ -1,4 +1,4 @@
-/* ===== OpenSearch Admin — Vue 3 CDN App ===== */
+/* ===== easy_ai_search Admin — Vue 3 CDN App ===== */
 const { createApp, ref, reactive, computed, watch, onMounted, nextTick } = Vue
 
 // ── API 封装 ──

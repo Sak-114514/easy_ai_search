@@ -29,7 +29,7 @@ __version__ = "2.0.0"
 config = get_api_config()
 
 app = FastAPI(
-    title="OpenSearch API Server",
+    title="easy_ai_search API Server",
     description="本地AI搜索系统API服务",
     version=__version__,
 )
@@ -67,8 +67,8 @@ app.include_router(mcp.router, prefix="/mcp", tags=["mcp"])
 async def root():
     """根路径"""
     return {
-        "message": "OpenSearch API",
-        "name": "OpenSearch API Server",
+        "message": "easy_ai_search API",
+        "name": "easy_ai_search API Server",
         "version": __version__,
         "status": "running",
         "docs": "/docs",
@@ -82,7 +82,7 @@ async def health_check():
     """健康检查"""
     return {
         "status": "healthy",
-        "service": "OpenSearch API",
+        "service": "easy_ai_search API",
         "version": __version__,
         "protocols": ["MCP", "REST"],
     }

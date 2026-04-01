@@ -34,7 +34,7 @@ class MCPService:
                 "resources": {"subscribe": True, "listChanged": True},
                 "prompts": {"listChanged": True},
             },
-            "serverInfo": {"name": "opensearch-mcp-server", "version": "2.0.0"},
+            "serverInfo": {"name": "easy-ai-search-mcp-server", "version": "2.0.0"},
         }
 
     async def handle_sse(self, query: str):
