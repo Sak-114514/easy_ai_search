@@ -6,9 +6,10 @@ from typing import Optional, Dict
 import chromadb
 from chromadb.utils import embedding_functions
 
-from config import get_config
-from utils.logger import setup_logger
-from utils.exceptions import CacheException
+from my_ai_search.config import get_config
+from my_ai_search.utils.logger import setup_logger
+from my_ai_search.utils.exceptions import CacheException
+from my_ai_search.vector.vector import _resolve_model_path
 
 logger = setup_logger("cache")
 
@@ -43,10 +44,11 @@ def _get_cache_collection():
     try:
         if _cache_client is None:
             config = get_config()
-            _cache_client = chromadb.PersistentClient(path="./chroma_db_cache")
+            _cache_client = chromadb.PersistentClient(path=config.cache.persist_dir)
             _cache_embedding_function = (
                 embedding_functions.SentenceTransformerEmbeddingFunction(
-                    model_name=config.chroma.embedding_model
+                    model_name=config.chroma.embedding_model_path
+                    or _resolve_model_path(config.chroma.embedding_model)
                 )
             )
 
@@ -274,15 +276,17 @@ def set_cache(url: str, html: str, title: str = "", ttl: Optional[int] = None):
 
 def get_cache_stats() -> Dict:
     """
-    获取缓存统计信息
+    获取缓存统计信息（MCP API适配格式）
 
     Returns:
         统计信息：
         {
-            'hits': int,
-            'misses': int,
-            'hit_rate': float,
-            'total_entries': int
+            'total': int,           # 总缓存条目数
+            'hits': int,            # 缓存命中次数
+            'misses': int,          # 缓存未命中次数
+            'hit_rate': float,       # 命中率
+            'size_bytes': int,       # 缓存大小（字节）
+            'size_mb': float        # 缓存大小（MB）
         }
     """
     global _cache_hits, _cache_misses
@@ -294,11 +298,17 @@ def get_cache_stats() -> Dict:
         total_requests = _cache_hits + _cache_misses
         hit_rate = _cache_hits / total_requests if total_requests > 0 else 0.0
 
+        # 计算缓存大小（ChromaDB不直接提供，设置为0）
+        size_bytes = 0
+        size_mb = 0.0
+
         stats = {
+            "total": total_entries,
             "hits": _cache_hits,
             "misses": _cache_misses,
             "hit_rate": hit_rate,
-            "total_entries": total_entries,
+            "size_bytes": size_bytes,
+            "size_mb": size_mb,
         }
 
         logger.info(f"Cache stats: {stats}")
@@ -307,10 +317,12 @@ def get_cache_stats() -> Dict:
     except Exception as e:
         logger.error(f"Failed to get cache stats: {e}")
         return {
+            "total": 0,
             "hits": _cache_hits,
             "misses": _cache_misses,
             "hit_rate": 0.0,
-            "total_entries": 0,
+            "size_bytes": 0,
+            "size_mb": 0.0,
         }
 
 

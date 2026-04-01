@@ -1,6 +1,6 @@
 import logging
 from pathlib import Path
-from config import get_config
+from my_ai_search.config import get_config
 
 
 def setup_logger(name: str = "app") -> logging.Logger:

@@ -1,12 +1,16 @@
-from vector.vector import (
+from .vector import (
     init_vector_db,
     store_documents,
+    upsert_documents,
     get_collection,
     clear_collection,
     get_collection_stats,
     reset_vector_db,
 )
-from vector.vector_query import (
+from .vector_db_stats import (
+    get_vector_db_stats,
+)
+from .vector_query import (
     search,
     hybrid_search,
     search_by_ids,
@@ -15,10 +19,12 @@ from vector.vector_query import (
 __all__ = [
     "init_vector_db",
     "store_documents",
+    "upsert_documents",
     "get_collection",
     "clear_collection",
     "get_collection_stats",
     "reset_vector_db",
+    "get_vector_db_stats",
     "search",
     "hybrid_search",
     "search_by_ids",

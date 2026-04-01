@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenSearch Admin</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <div class="layout">
+      <!-- 侧边栏 -->
+      <aside class="sidebar">
+        <div class="logo">OpenSearch</div>
+        <nav>
+          <a v-for="p in pages" :key="p.id"
+             :class="{ active: currentPage === p.id }"
+             @click="currentPage = p.id">
+            <span class="icon">{{ p.icon }}</span>
+            {{ p.label }}
+          </a>
+        </nav>
+      </aside>
+
+      <!-- 主区域 -->
+      <div class="main-area">
+        <header class="header">
+          <div class="title">{{ pageTitle }}</div>
+          <div class="api-key-group">
+            <label>API Key:</label>
+            <input v-model="apiKey" placeholder="API Key" />
+          </div>
+        </header>
+
+        <div class="content">
+          <search-page     v-if="currentPage === 'search'"></search-page>
+          <config-page     v-if="currentPage === 'config'"></config-page>
+          <algorithms-page v-if="currentPage === 'algorithms'"></algorithms-page>
+          <cache-page      v-if="currentPage === 'cache'"></cache-page>
+          <vector-page     v-if="currentPage === 'vector'"></vector-page>
+          <tokens-page     v-if="currentPage === 'tokens'"></tokens-page>
+          <logs-page       v-if="currentPage === 'logs'"></logs-page>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

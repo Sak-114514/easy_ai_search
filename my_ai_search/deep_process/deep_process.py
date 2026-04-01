@@ -1,11 +1,118 @@
 from typing import List, Dict, Optional
 import hashlib
+import re
 from thefuzz import fuzz
-from config import get_config
-from utils.logger import setup_logger
-from utils.exceptions import DeepProcessException
+from my_ai_search.config import get_config
+from .summary_provider import summarize_with_backend
+from my_ai_search.utils.logger import setup_logger
+from my_ai_search.utils.exceptions import DeepProcessException
 
 logger = setup_logger("deep_process")
+
+
+def deep_process_page(
+    chunks: List[Dict],
+    enable_summary: bool = True,
+    enable_quality_check: bool = True,
+    min_quality_score: float = 0.5,
+) -> List[Dict]:
+    """
+    Per-page deep processing: quality check + quality filter.
+
+    注意：不再用规则摘要覆盖 text 字段。
+    text 保持原始正文（用于向量化），snippet 由 process 模块生成（用于展示）。
+    未来可在此处接入 LLM 摘要，写入 snippet 字段。
+
+    Args:
+        chunks: Text chunks from a single page
+        enable_summary: 预留参数（未来接入 LLM 摘要）
+        enable_quality_check: Whether to check quality
+        min_quality_score: Minimum quality score threshold
+
+    Returns:
+        Processed chunks (after quality filtering)
+    """
+    if not chunks:
+        return []
+
+    final_chunks = []
+
+    for chunk in chunks:
+        chunk = chunk.copy()
+        original_text = chunk.get("text", "")
+        if not original_text.strip():
+            continue
+
+        if enable_quality_check:
+            try:
+                quality = assess_quality(original_text)
+                score = quality["overall_score"]
+                if score < min_quality_score:
+                    logger.debug(f"Filtered low quality chunk (score: {score:.2f})")
+                    continue
+                chunk["quality_score"] = score
+            except Exception as e:
+                logger.warning(f"Failed to assess quality: {e}")
+                chunk["quality_score"] = 0.0
+
+        if enable_summary:
+            try:
+                summary = generate_summary(original_text)
+                chunk["summary"] = summary
+                if summary:
+                    chunk["snippet"] = summary
+                    metadata = chunk.get("metadata", {})
+                    metadata["summary"] = summary
+                    chunk["metadata"] = metadata
+            except Exception as e:
+                logger.warning(f"Failed to generate page summary: {e}")
+                chunk["summary"] = ""
+
+        chunk["is_duplicate"] = False
+        final_chunks.append(chunk)
+
+    logger.info(f"Per-page deep process: {len(chunks)} -> {len(final_chunks)} chunks")
+    return final_chunks
+
+
+def dedup_chunks(
+    chunks: List[Dict], similarity_threshold: Optional[float] = None
+) -> List[Dict]:
+    """
+    Dedup chunks globally (across all pages).
+    Should be called after per-page deep processing.
+
+    Args:
+        chunks: All processed chunks from all pages
+        similarity_threshold: Dedup threshold
+
+    Returns:
+        Chunks after dedup
+    """
+    if not chunks:
+        return []
+
+    duplicate_info = detect_duplicates(
+        chunks, similarity_threshold=similarity_threshold
+    )
+
+    duplicate_ids = duplicate_info.get("duplicate_ids", [])
+    mapping = duplicate_info.get("mapping", {})
+
+    for chunk in chunks:
+        chunk_id = f"{chunk.get('url', 'unknown')}#chunk_{chunk.get('chunk_id', 0)}"
+        if chunk_id in duplicate_ids:
+            chunk["is_duplicate"] = True
+            chunk["is_duplicate_of"] = mapping.get(chunk_id, "")
+            logger.debug(f"Marked chunk {chunk_id} as duplicate")
+
+    final_chunks = [c for c in chunks if not c.get("is_duplicate", False)]
+
+    logger.info(
+        f"Global dedup: {len(chunks)} -> {len(final_chunks)} chunks "
+        f"({len(duplicate_ids)} duplicates removed)"
+    )
+    return final_chunks
 
 
 def deep_process_content(
@@ -41,6 +148,10 @@ def deep_process_content(
         processed_chunks = []
         duplicate_info = {}
 
+        if not enable_summary and not enable_quality_check and not enable_dedup:
+            logger.info("All deep processing disabled, returning original chunks")
+            return chunks
+
         if enable_summary or enable_quality_check:
             for chunk in chunks:
                 processed = chunk.copy()
@@ -50,6 +161,11 @@ def deep_process_content(
                     try:
                         summary = generate_summary(original_text)
                         processed["summary"] = summary
+                        if summary:
+                            processed["snippet"] = summary
+                            metadata = processed.get("metadata", {})
+                            metadata["summary"] = summary
+                            processed["metadata"] = metadata
                         logger.debug(
                             f"Generated summary for chunk {chunk.get('chunk_id')}"
                         )
@@ -74,6 +190,8 @@ def deep_process_content(
                 processed["is_duplicate_of"] = ""
 
                 processed_chunks.append(processed)
+        else:
+            processed_chunks = chunks[:]
 
         if enable_dedup:
             duplicate_info = detect_duplicates(processed_chunks)
@@ -104,13 +222,6 @@ def deep_process_content(
                     logger.debug(f"Filtered low quality chunk (score: {quality:.2f})")
                     continue
 
-            if enable_summary and chunk.get("summary"):
-                summary = chunk["summary"]
-                original = chunk.get("original_text", "")
-                if len(summary) > 0.1 * len(original):
-                    chunk["text"] = summary
-                    logger.debug(f"Using summary for chunk {chunk.get('chunk_id')}")
-
             final_chunks.append(chunk)
 
         logger.info(
@@ -121,6 +232,77 @@ def deep_process_content(
     except Exception as e:
         logger.error(f"Deep processing failed: {e}")
         raise DeepProcessException(f"Deep processing failed: {e}")
+
+
+def estimate_query_relevance(query: str, chunk: Dict) -> float:
+    """
+    估算 chunk 与 query 的轻量相关性分数，用于挑选 deep_process 候选。
+    """
+    if not query or not query.strip():
+        return 0.0
+
+    text = (chunk.get("text") or "").lower()
+    snippet = (chunk.get("snippet") or "").lower()
+    metadata = chunk.get("metadata") or {}
+    title = str(metadata.get("title") or "").lower()
+    source_url = str(metadata.get("source_url") or chunk.get("url") or "").lower()
+
+    query_lower = query.lower()
+    terms = [t for t in re.split(r"\s+", query_lower) if t]
+    if not terms:
+        terms = [query_lower]
+
+    haystack = "\n".join([title, snippet, text[:2000]])
+    score = 0.0
+
+    if query_lower in haystack:
+        score += 6.0
+
+    unique_terms = list(dict.fromkeys(terms))
+    for term in unique_terms:
+        if len(term) < 2:
+            continue
+        if term in title:
+            score += 2.5
+        if term in snippet:
+            score += 1.5
+        if term in text:
+            score += 1.0
+        if term in source_url:
+            score += 0.5
+
+    text_length = len(text)
+    if 120 <= text_length <= 4000:
+        score += 0.8
+    elif text_length > 4000:
+        score += 0.4
+
+    if metadata.get("original_chunk_index", metadata.get("chunk_index", 0)) == 0:
+        score += 0.8
+
+    return score
+
+
+def select_deep_process_candidates(
+    chunks: List[Dict],
+    query: str,
+    max_candidates: int,
+) -> List[Dict]:
+    """
+    从全部 chunk 中选出值得做 deep_process 的候选。
+    """
+    if not chunks or max_candidates <= 0:
+        return []
+
+    scored_chunks = []
+    for index, chunk in enumerate(chunks):
+        score = estimate_query_relevance(query, chunk)
+        scored_chunks.append((score, index, chunk))
+
+    scored_chunks.sort(key=lambda item: (item[0], -item[1]), reverse=True)
+    selected = scored_chunks[:max_candidates]
+    selected.sort(key=lambda item: item[1])
+    return [chunk for _, _, chunk in selected]
 
 
 def generate_summary(text: str, max_length: Optional[int] = None) -> str:
@@ -144,6 +326,23 @@ def generate_summary(text: str, max_length: Optional[int] = None) -> str:
     actual_max_length = max_length or config.deep_process.summary_length
 
     try:
+        backend = (config.deep_process.summary_backend or "extractive").lower()
+        if backend != "extractive":
+            llm_summary = summarize_with_backend(
+                text=text,
+                backend=backend,
+                api_url=config.deep_process.summary_api_url,
+                model=config.deep_process.summary_model,
+                timeout=config.deep_process.summary_timeout,
+                max_length=actual_max_length,
+                api_key=config.deep_process.summary_api_key,
+            )
+            if llm_summary:
+                logger.debug(
+                    f"Generated summary via {backend}: {len(llm_summary)} chars from {len(text)} chars"
+                )
+                return llm_summary
+
         sentences = text.split("。")
         sentences = [s.strip() for s in sentences if s.strip()]
 
@@ -321,33 +520,42 @@ def detect_duplicates(
                 keep_ids.append(ids[0])
 
         if threshold < 1.0:
-            for i, chunk1 in enumerate(chunks):
-                id1 = (
-                    f"{chunk1.get('url', 'unknown')}#chunk_{chunk1.get('chunk_id', 0)}"
+            from collections import defaultdict
+
+            url_groups = defaultdict(list)
+            for chunk in chunks:
+                chunk_id = (
+                    f"{chunk.get('url', 'unknown')}#chunk_{chunk.get('chunk_id', 0)}"
                 )
-                if id1 in duplicate_ids:
-                    continue
+                if chunk_id not in duplicate_ids:
+                    url_groups[chunk.get("url", "unknown")].append(chunk)
 
-                text1 = chunk1.get("text", "")
-
-                for chunk2 in chunks[i + 1 :]:
-                    id2 = f"{chunk2.get('url', 'unknown')}#chunk_{chunk2.get('chunk_id', 0)}"
-                    if id2 in duplicate_ids:
+            for url, group_chunks in url_groups.items():
+                for i, chunk1 in enumerate(group_chunks):
+                    id1 = f"{chunk1.get('url', 'unknown')}#chunk_{chunk1.get('chunk_id', 0)}"
+                    if id1 in duplicate_ids:
                         continue
 
-                    text2 = chunk2.get("text", "")
+                    text1 = chunk1.get("text", "")
 
-                    similarity = fuzz.ratio(text1, text2) / 100.0
+                    for chunk2 in group_chunks[i + 1 :]:
+                        id2 = f"{chunk2.get('url', 'unknown')}#chunk_{chunk2.get('chunk_id', 0)}"
+                        if id2 in duplicate_ids:
+                            continue
 
-                    if similarity >= threshold:
-                        duplicate_ids.append(id2)
-                        mapping[id2] = id1
-                        if id2 in keep_ids:
-                            keep_ids.remove(id2)
+                        text2 = chunk2.get("text", "")
 
-                        logger.debug(
-                            f"Found near-duplicate: {id1} vs {id2} (similarity: {similarity:.2f})"
-                        )
+                        similarity = fuzz.ratio(text1, text2) / 100.0
+
+                        if similarity >= threshold:
+                            duplicate_ids.append(id2)
+                            mapping[id2] = id1
+                            if id2 in keep_ids:
+                                keep_ids.remove(id2)
+
+                            logger.debug(
+                                f"Found near-duplicate: {id1} vs {id2} (similarity: {similarity:.2f})"
+                            )
 
         logger.info(f"Duplicate detection: {len(duplicate_ids)} duplicates found")
 

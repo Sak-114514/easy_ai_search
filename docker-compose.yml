@@ -1,0 +1,67 @@
+services:
+  # OpenSearch API Server
+  api:
+    build:
+      context: .
+      dockerfile: deployment/docker/Dockerfile.api
+    container_name: opensearch-api
+    ports:
+      - "8000:8000"
+    environment:
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - LOG_LEVEL=INFO
+      - OPENSEARCH_HOME=/app
+      - OPENSEARCH_DATA_DIR=/app/data
+      - OPENSEARCH_LOG_DIR=/app/data/logs
+      - CHROMA_PERSIST_DIR=/app/data/chroma_db
+      - CACHE_PERSIST_DIR=/app/data/chroma_db_cache
+      - DATABASE_URL=sqlite:////app/data/logs.db
+      - SEARXNG_API_URL=http://searxng:8080/search
+      - LIGHTPANDA_CDP_URL=ws://lightpanda:9222
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - searxng
+      - lightpanda
+    restart: unless-stopped
+
+  # SearXNG
+  searxng:
+    image: searxng/searxng:latest
+    container_name: opensearch-searxng
+    ports:
+      - "8080:8080"
+    environment:
+      - SEARXNG_SECRET=${SEARXNG_SECRET:-opensearch-searxng-secret-change-me}
+      - SEARXNG_BASE_URL=http://localhost:8080/
+    volumes:
+      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
+    restart: unless-stopped
+
+  # LightPanda
+  lightpanda:
+    image: lightpanda/browser:latest
+    container_name: opensearch-lightpanda
+    ports:
+      - "9222:9222"
+    restart: unless-stopped
+
+  # Nginx (可选）
+  nginx:
+    image: nginx:alpine
+    container_name: opensearch-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deployment/nginx/nginx.conf:/etc/nginx/nginx.conf
+    depends_on:
+      - api
+    restart: unless-stopped
+    profiles:
+      - edge
+
+networks:
+  default:
+    name: opensearch-network

@@ -1,0 +1,29 @@
+# MCP Server 核心依赖
+mcp>=1.0.0
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.0.0
+
+# 异步支持
+anyio>=4.0.0
+httpx>=0.25.0
+
+# 环境配置
+python-dotenv>=1.0.0
+
+# 日志
+loguru>=0.7.0
+
+# 数据处理
+pyyaml>=6.0
+
+# 测试
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+httpx>=0.25.0
+
+# 可选：Prometheus 监控
+# prometheus-fastapi-instrumentator>=7.0.0
+
+# 可选：速率限制
+# slowapi>=0.1.9

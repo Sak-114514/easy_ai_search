@@ -1,0 +1,23 @@
+# API Server 依赖
+
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.0.0
+python-multipart>=0.0.6
+python-dotenv>=1.0.0
+
+# MCP 协议
+mcp>=1.0.0
+
+# 数据库
+aiosqlite>=0.19.0
+
+# 限流
+slowapi>=0.1.9
+
+# 日志
+loguru>=0.7.0
+
+# 工具
+httpx>=0.25.0
+bcrypt>=4.0.0

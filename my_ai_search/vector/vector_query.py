@@ -1,7 +1,7 @@
 from typing import List, Dict, Optional
-from config import get_config
-from utils.logger import setup_logger
-from utils.exceptions import VectorException
+from my_ai_search.config import get_config
+from my_ai_search.utils.logger import setup_logger
+from my_ai_search.utils.exceptions import VectorException
 from .vector import get_collection, init_vector_db
 
 logger = setup_logger("vector_query")
@@ -96,8 +96,13 @@ def hybrid_search(
             query, top_k=actual_top_k * 2, filter_metadata=filter_metadata
         )
 
+        candidate_ids = [r["id"] for r in vector_results]
+
         keyword_results = _keyword_search(
-            query, top_k=actual_top_k * 2, filter_metadata=filter_metadata
+            query,
+            top_k=actual_top_k * 2,
+            filter_metadata=filter_metadata,
+            candidate_ids=candidate_ids,
         )
 
         merged_results = _merge_and_rank(vector_results, keyword_results, alpha)
@@ -141,17 +146,29 @@ def _parse_search_results(results: Dict) -> List[Dict]:
 
 
 def _keyword_search(
-    query: str, top_k: int, filter_metadata: Optional[Dict] = None
+    query: str,
+    top_k: int,
+    filter_metadata: Optional[Dict] = None,
+    candidate_ids: Optional[List[str]] = None,
 ) -> List[Dict]:
     """
     关键词搜索（基于文本匹配）
 
     注意：ChromaDB的全文本搜索功能有限，这里使用简单的文本匹配
+
+    Args:
+        query: 查询文本
+        top_k: 返回结果数
+        filter_metadata: 元数据过滤条件
+        candidate_ids: 候选文档ID列表（仅在这些文档中做关键词匹配，避免全量加载）
     """
     try:
         collection = get_collection()
 
-        all_docs = collection.get()
+        if candidate_ids:
+            all_docs = collection.get(ids=candidate_ids)
+        else:
+            all_docs = collection.get()
 
         if not all_docs["ids"]:
             return []
