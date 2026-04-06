@@ -5,6 +5,11 @@
 - 嵌入模型与摘要模型如何切换
 - 配置、前端、REST、MCP 的对应关系
 - 搜索主流程的关键扩展点
+- 抓取 / 清洗性能优化的实现边界与验证方式
+
+相关补充文档：
+
+- [抓取 / 清洗优化实施说明](CRAWL_CLEANING_OPTIMIZATION.md)
 
 ## 1. 项目分层
 
@@ -222,6 +227,20 @@
 - 摘要与质量：`my_ai_search/deep_process/deep_process.py`
 - 请求级模式策略：`my_ai_search/main.py`
 
+### 4.1 抓取 / 清洗优化时的边界
+
+当你修改 `fetch -> process -> deep_process` 或 `main -> vector` 这一条链路时，建议先阅读：
+
+- [抓取 / 清洗优化实施说明](CRAWL_CLEANING_OPTIMIZATION.md)
+
+特别注意以下约束：
+
+1. 不要修改公共 API 签名。
+2. `fetch_page()` 只能追加可选字段，不能破坏兼容返回结构。
+3. 抓取层传给处理层的预解析信息必须是 plain-data，不能传 `BeautifulSoup` 实例。
+4. 搜索缓存与域名规则必须通过统一配置入口管理，避免热加载后出现陈旧副本。
+5. 并发优化必须补取消路径、失败路径和回退路径测试。
+
 ## 5. 新增来源策略 / 新增 profile 的方法
 
 如需增加新的 `source_profile`：
@@ -255,6 +274,17 @@
 2. 改 `my_ai_search/main.py`（如果涉及主流程）
 3. 补单元测试
 4. 真实查询回打
+
+### 修改抓取 / 清洗 / deep process
+
+1. 先确认是否涉及跨模块契约（尤其是 `fetch -> process` 的共享字段）
+2. 如涉及缓存、会话池或 TTL，先写清楚生命周期和清理路径
+3. 优先补对应专项测试：
+   - `my_ai_search/tests/test_fetch_optimization.py`
+   - `my_ai_search/tests/test_process_optimization.py`
+   - `my_ai_search/tests/test_main_refactor.py`
+4. 再跑全量 `pytest my_ai_search/tests/ -q`
+5. 最后执行 `ruff check my_ai_search/` 和结构性 `rg` / `wc -l` 验收
 
 ## 7. 最小回归命令
 
