@@ -3,15 +3,15 @@
 提供MCP API期望的标准化统计接口
 """
 
-from typing import Dict
-from .vector import get_collection, get_collection_stats, init_vector_db, _client
+
 from ..config import get_config
 from ..utils.logger import setup_logger
+from .vector import _client, get_collection_stats, init_vector_db
 
 logger = setup_logger("vector_db_stats")
 
 
-def get_vector_db_stats() -> Dict:
+def get_vector_db_stats() -> dict:
     """
     获取向量数据库统计信息（MCP API适配格式）
 

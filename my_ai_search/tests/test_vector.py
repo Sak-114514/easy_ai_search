@@ -1,18 +1,17 @@
-import sys
 import os
+import sys
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+
 from vector.vector import (
-    init_vector_db,
-    store_documents,
-    get_collection,
     clear_collection,
+    get_collection,
     get_collection_stats,
+    init_vector_db,
     reset_vector_db,
+    store_documents,
 )
-from utils.exceptions import VectorException
-import time
 
 
 def test_init_vector_db():

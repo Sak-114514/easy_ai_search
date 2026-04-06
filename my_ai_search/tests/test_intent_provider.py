@@ -1,4 +1,4 @@
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from my_ai_search.search.intent_provider import (
     _classify_with_rules,

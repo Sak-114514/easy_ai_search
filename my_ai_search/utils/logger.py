@@ -1,5 +1,6 @@
 import logging
 from pathlib import Path
+
 from my_ai_search.config import get_config
 
 

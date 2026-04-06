@@ -1,17 +1,19 @@
-import pytest
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
-from unittest.mock import patch, MagicMock, AsyncMock
+from unittest.mock import MagicMock, patch
 
-from deep_process import deep_process_page, dedup_chunks
-from vector.vector_query import hybrid_search, search, _keyword_search
+import pytest
+from deep_process import dedup_chunks, deep_process_page
+from vector.vector_query import _keyword_search, search
 
 
 class TestDeepProcessPage:
     def test_basic_processing(self):
         chunks = [
             {
-                "text": "Python是一门高级编程语言，具有简洁清晰的语法。它支持多种编程范式，被广泛应用于Web开发、数据科学和人工智能等领域。",
+                "text": (
+                    "Python是一门高级编程语言，具有简洁清晰的语法。"
+                    "它支持多种编程范式，被广泛应用于Web开发、数据科学和人工智能等领域。"
+                ),
                 "chunk_id": 0,
                 "url": "https://python.org",
                 "metadata": {},
@@ -28,7 +30,7 @@ class TestDeepProcessPage:
         assert len(result) == 1
         assert "quality_score" in result[0]
         assert "is_duplicate" in result[0]
-        assert result[0]["is_duplicate"] == False
+        assert not result[0]["is_duplicate"]
 
     def test_empty_chunks(self):
         result = deep_process_page([])
@@ -76,7 +78,6 @@ class TestDeepProcessPage:
         assert result[0]["chunk_id"] == 0
 
     def test_failed_page_result(self):
-        result = {"success": False, "url": "https://test.com", "html": ""}
         from deep_process import deep_process_page
 
         chunks = deep_process_page([], enable_summary=True)
@@ -127,7 +128,7 @@ class TestDedupChunks:
 
 class TestKeywordSearchOptimization:
     def test_keyword_search_with_candidate_ids(self):
-        from vector.vector import init_vector_db, store_documents, clear_collection
+        from vector.vector import clear_collection, store_documents
 
         clear_collection()
 
@@ -181,8 +182,6 @@ class TestPipelineIntegration:
         assert asyncio.iscoroutinefunction(_pipeline_fetch_and_process)
 
     def test_pipeline_returns_correct_structure(self):
-        from my_ai_search.main import _pipeline_fetch_and_process
-        import time
 
         mock_result = {
             "fetch_results": [],
@@ -540,13 +539,19 @@ class TestBackwardCompatibility:
 
         chunks = [
             {
-                "text": "Python是一门高级编程语言，具有简洁清晰的语法。它支持多种编程范式，被广泛应用于Web开发、数据科学和人工智能等领域。",
+                "text": (
+                    "Python是一门高级编程语言，具有简洁清晰的语法。"
+                    "它支持多种编程范式，被广泛应用于Web开发、数据科学和人工智能等领域。"
+                ),
                 "chunk_id": 0,
                 "url": "https://python.org",
                 "metadata": {},
             },
             {
-                "text": "Python是一门高级编程语言，具有简洁清晰的语法。它支持多种编程范式，被广泛应用于Web开发、数据科学和人工智能等领域。",
+                "text": (
+                    "Python是一门高级编程语言，具有简洁清晰的语法。"
+                    "它支持多种编程范式，被广泛应用于Web开发、数据科学和人工智能等领域。"
+                ),
                 "chunk_id": 1,
                 "url": "https://python.org",
                 "metadata": {},

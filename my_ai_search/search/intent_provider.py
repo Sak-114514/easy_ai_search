@@ -1,7 +1,6 @@
 import json
 import os
 import re
-from typing import Dict, List
 
 import requests
 
@@ -36,7 +35,7 @@ _VALID_AVOID_PAGE_TYPES = {
 }
 
 
-def get_search_intent(query: str) -> Dict:
+def get_search_intent(query: str) -> dict:
     """获取搜索意图，优先走外部 LLM，失败时回退规则分类。"""
     rule_plan = _classify_with_rules(query)
     backend = (os.getenv("SEARCH_INTENT_BACKEND") or "rule").lower()
@@ -62,7 +61,7 @@ def get_search_intent(query: str) -> Dict:
 
 def _classify_with_openai_compatible(
     query: str, api_url: str, model: str, timeout: float
-) -> Dict:
+) -> dict:
     endpoint = normalize_openai_compatible_url(api_url)
     payload = {
         "model": model,
@@ -73,7 +72,8 @@ def _classify_with_openai_compatible(
                 "role": "system",
                 "content": (
                     "你是搜索意图路由器。请只输出 JSON，不要输出额外解释。"
-                    '字段固定为: intent, confidence, rewrite_query, preferred_sources, avoid_page_types, max_results_per_domain。'
+                    "字段固定为: intent, confidence, rewrite_query, preferred_sources, "
+                    "avoid_page_types, max_results_per_domain。"
                     'intent 只能是 technical/news/howto/explanation/general。'
                     "preferred_sources 和 avoid_page_types 必须是字符串数组。"
                     "max_results_per_domain 必须是 1 到 3 的整数。"
@@ -96,7 +96,7 @@ def _classify_with_openai_compatible(
     return parsed
 
 
-def _classify_with_rules(query: str) -> Dict:
+def _classify_with_rules(query: str) -> dict:
     query_lower = query.lower()
 
     categories = {
@@ -123,7 +123,7 @@ def _classify_with_rules(query: str) -> Dict:
     return result
 
 
-def _parse_intent_json(content: str) -> Dict:
+def _parse_intent_json(content: str) -> dict:
     if not content:
         return {}
 
@@ -162,7 +162,7 @@ def _parse_intent_json(content: str) -> Dict:
         "max_results_per_domain": max_results_per_domain,
     }
 
-def _merge_with_rule_plan(query: str, llm_plan: Dict, rule_plan: Dict) -> Dict:
+def _merge_with_rule_plan(query: str, llm_plan: dict, rule_plan: dict) -> dict:
     intent = str(llm_plan.get("intent") or "general").lower()
     confidence = float(llm_plan.get("confidence", 0.0))
 
@@ -205,7 +205,7 @@ def _merge_with_rule_plan(query: str, llm_plan: Dict, rule_plan: Dict) -> Dict:
     return merged
 
 
-def _defaults_for_intent(intent: str, query: str) -> Dict:
+def _defaults_for_intent(intent: str, query: str) -> dict:
     defaults = {
         "technical": {
             "preferred_sources": ["official_docs", "tutorial", "tech_blog"],
@@ -247,6 +247,4 @@ def _is_valid_rewrite_query(rewrite_query: str) -> bool:
     lowered = rewrite_query.lower()
     if "http://" in lowered or "https://" in lowered:
         return False
-    if "technical/news/howto/explanation/general" in lowered:
-        return False
-    return True
+    return "technical/news/howto/explanation/general" not in lowered

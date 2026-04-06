@@ -1,5 +1,5 @@
-import sys
 import os
+import sys
 import time
 
 sys.path.insert(
@@ -7,8 +7,7 @@ sys.path.insert(
 )
 
 from my_ai_search.main import search_ai
-from my_ai_search.config import get_config
-from my_ai_search.vector.vector import init_vector_db, reset_vector_db, get_collection
+from my_ai_search.vector.vector import init_vector_db, reset_vector_db
 
 
 def test_local_first_search():
@@ -22,15 +21,13 @@ def test_local_first_search():
     print("测试：本地优先搜索逻辑")
     print("=" * 70)
 
-    config = get_config()
-
     print("\n[Step 1] 初始化向量数据库...")
     init_vector_db()
     reset_vector_db()
     print("✓ 向量数据库已重置（清空）")
 
     query = "Python异步编程最佳实践"
-    print(f"\n[Step 2] 首次搜索（联网模式）")
+    print("\n[Step 2] 首次搜索（联网模式）")
     print(f"查询：{query}")
     print("-" * 70)
 
@@ -49,7 +46,7 @@ def test_local_first_search():
 
     print("\n✓ 首次搜索成功，文档已存储到本地数据库")
 
-    print(f"\n[Step 3] 再次搜索相同查询（本地模式）")
+    print("\n[Step 3] 再次搜索相同查询（本地模式）")
     print(f"查询：{query}")
     print("-" * 70)
 

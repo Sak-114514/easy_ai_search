@@ -6,8 +6,8 @@ import sys
 # 添加项目根目录到路径
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from my_ai_search.utils.logger import setup_logger, get_logger
-from my_ai_search.utils.exceptions import SearchException, FetchException
+from my_ai_search.utils.exceptions import FetchException, SearchException
+from my_ai_search.utils.logger import get_logger, setup_logger
 
 
 def test_logger():
@@ -27,7 +27,7 @@ def test_logger_file():
 
     # 检查日志目录是否存在
     if os.path.exists("logs/app.log"):
-        with open("logs/app.log", "r", encoding="utf-8") as f:
+        with open("logs/app.log", encoding="utf-8") as f:
             content = f.read()
             if "test - INFO - This is an info message" in content:
                 print("✅ 日志文件创建成功并包含日志记录")

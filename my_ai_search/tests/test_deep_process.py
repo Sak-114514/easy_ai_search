@@ -1,11 +1,11 @@
 import pytest
 from deep_process import (
-    deep_process_content,
-    generate_summary,
     assess_quality,
+    deep_process_content,
     detect_duplicates,
-    extract_key_info,
     estimate_query_relevance,
+    extract_key_info,
+    generate_summary,
     select_deep_process_candidates,
 )
 
@@ -45,7 +45,7 @@ def test_assess_quality_good_text():
     )
     quality = assess_quality(good_text)
     assert quality["overall_score"] > 0.5
-    assert quality["is_valid"] == True
+    assert quality["is_valid"]
     assert "readability" in quality
     assert "length_score" in quality
     assert "content_score" in quality
@@ -56,14 +56,14 @@ def test_assess_quality_bad_text():
     bad_text = "测试测试测试测试测试"
     quality = assess_quality(bad_text)
     assert quality["overall_score"] < 0.5
-    assert quality["is_valid"] == False
+    assert not quality["is_valid"]
 
 
 def test_assess_quality_empty_text():
     """测试空文本质量评估"""
     quality = assess_quality("")
     assert quality["overall_score"] == 0.0
-    assert quality["is_valid"] == False
+    assert not quality["is_valid"]
 
 
 def test_detect_duplicates_exact():
@@ -128,13 +128,19 @@ def test_deep_process_full():
     """测试完整深度处理流程"""
     chunks = [
         {
-            "text": "Python是一门高级编程语言，具有简洁清晰的语法。它支持多种编程范式，被广泛应用于Web开发、数据科学和人工智能等领域。",
+            "text": (
+                "Python是一门高级编程语言，具有简洁清晰的语法。"
+                "它支持多种编程范式，被广泛应用于Web开发、数据科学和人工智能等领域。"
+            ),
             "chunk_id": 0,
             "url": "https://python.org",
             "metadata": {},
         },
         {
-            "text": "Python是一门高级编程语言，具有简洁清晰的语法。它支持多种编程范式，被广泛应用于Web开发、数据科学和人工智能等领域。",
+            "text": (
+                "Python是一门高级编程语言，具有简洁清晰的语法。"
+                "它支持多种编程范式，被广泛应用于Web开发、数据科学和人工智能等领域。"
+            ),
             "chunk_id": 1,
             "url": "https://python.org",
             "metadata": {},
@@ -153,7 +159,7 @@ def test_deep_process_full():
     assert "summary" in processed[0]
     assert "quality_score" in processed[0]
     assert processed[0]["quality_score"] > 0.5
-    assert processed[0]["is_duplicate"] == False
+    assert not processed[0]["is_duplicate"]
 
 
 def test_deep_process_empty():

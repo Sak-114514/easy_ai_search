@@ -1,11 +1,10 @@
-import time
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from cache import is_cached, get_cached, set_cache, get_cache_stats, clear_cache
-from my_ai_search.utils.exceptions import CacheException
+from cache import clear_cache, get_cache_stats, get_cached, is_cached, set_cache
 
 
 def test_cache_set_and_get():
@@ -71,7 +70,12 @@ def test_cache_stats():
     stats = get_cache_stats()
 
     print(
-        f"缓存统计: 命中={stats['hits']}, 未命中={stats['misses']}, 命中率={stats['hit_rate']:.2%}, 总条目={stats['total']}"
+        "缓存统计: 命中={hits}, 未命中={misses}, 命中率={rate:.2f}%, 总条目={total}".format(
+            hits=stats["hits"],
+            misses=stats["misses"],
+            rate=stats["hit_rate"] * 100,
+            total=stats["total"],
+        )
     )
 
     assert stats["hits"] >= 2, "应该有至少2次缓存命中"

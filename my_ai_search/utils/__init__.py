@@ -5,12 +5,12 @@
 
 from .exceptions import (
     AISearchException,
+    CacheException,
     ConfigException,
-    SearchException,
     FetchException,
     ProcessException,
+    SearchException,
     VectorException,
-    CacheException,
 )
 
 __all__ = [

@@ -3,20 +3,22 @@
 """
 
 import sys
+
 import pytest
 from process.process import (
-    process_content,
-    clean_html,
-    chunk_text,
-    limit_chunks_per_page,
-    normalize_text,
-    _strip_template_noise,
     _is_template_shell,
     _should_skip_readability,
+    _strip_template_noise,
+    chunk_text,
+    clean_html,
     get_token_count,
+    limit_chunks_per_page,
+    normalize_text,
+    process_content,
 )
-from my_ai_search.utils.logger import setup_logger
+
 import my_ai_search.process.process as process_module
+from my_ai_search.utils.logger import setup_logger
 
 logger = setup_logger("test_process")
 

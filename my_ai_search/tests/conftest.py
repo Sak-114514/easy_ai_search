@@ -3,8 +3,8 @@
 import importlib
 import sys
 from pathlib import Path
-import pytest
 
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
@@ -61,11 +61,11 @@ class _FakeCollection:
         }
 
     def add(self, ids, documents, metadatas):
-        for i, d, m in zip(ids, documents, metadatas):
+        for i, d, m in zip(ids, documents, metadatas, strict=False):
             self._data[i] = {"document": d, "metadata": m}
 
     def update(self, ids, documents, metadatas):
-        for i, d, m in zip(ids, documents, metadatas):
+        for i, d, m in zip(ids, documents, metadatas, strict=False):
             if i in self._data:
                 self._data[i] = {"document": d, "metadata": m}
 

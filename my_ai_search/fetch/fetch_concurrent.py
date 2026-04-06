@@ -1,15 +1,16 @@
 import asyncio
-from typing import List, Dict
 import time
+
 from my_ai_search.config import get_config
-from my_ai_search.utils.logger import setup_logger
 from my_ai_search.utils.exceptions import FetchException
-from .fetch import fetch_page, close_browser
+from my_ai_search.utils.logger import setup_logger
+
+from .fetch import fetch_page
 
 logger = setup_logger("fetch_concurrent")
 
 
-async def fetch_pages(urls: List[str], max_concurrent: int = None) -> List[Dict]:
+async def fetch_pages(urls: list[str], max_concurrent: int = None) -> list[dict]:
     """
     并发抓取多个页面（异步版本）
 
@@ -53,7 +54,7 @@ async def fetch_pages(urls: List[str], max_concurrent: int = None) -> List[Dict]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         processed_results = []
-        for url, result in zip(urls, results):
+        for url, result in zip(urls, results, strict=False):
             if isinstance(result, Exception):
                 processed_results.append(
                     {
@@ -82,10 +83,10 @@ async def fetch_pages(urls: List[str], max_concurrent: int = None) -> List[Dict]
 
     except Exception as e:
         logger.error(f"Concurrent fetch failed: {e}")
-        raise FetchException("", f"Concurrent fetch error: {e}")
+        raise FetchException("", f"Concurrent fetch error: {e}") from e
 
 
-async def _fetch_single(url: str, semaphore: asyncio.Semaphore) -> Dict:
+async def _fetch_single(url: str, semaphore: asyncio.Semaphore) -> dict:
     """
     抓取单个页面（带信号量控制）
 
@@ -114,7 +115,7 @@ async def _fetch_single(url: str, semaphore: asyncio.Semaphore) -> Dict:
             }
 
 
-def fetch_pages_sync(urls: List[str], max_concurrent: int = None) -> List[Dict]:
+def fetch_pages_sync(urls: list[str], max_concurrent: int = None) -> list[dict]:
     """
     同步包装函数，便于调用
 
@@ -128,7 +129,7 @@ def fetch_pages_sync(urls: List[str], max_concurrent: int = None) -> List[Dict]:
     return asyncio.run(fetch_pages(urls, max_concurrent))
 
 
-def _calculate_stats(results: List[Dict]) -> Dict:
+def _calculate_stats(results: list[dict]) -> dict:
     """
     计算抓取统计信息
 

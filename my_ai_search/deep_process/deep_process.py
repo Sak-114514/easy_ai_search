@@ -1,21 +1,132 @@
-from typing import List, Dict, Optional
 import hashlib
 import re
-from thefuzz import fuzz
+from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
+from difflib import SequenceMatcher
+from itertools import combinations
+
 from my_ai_search.config import get_config
-from .summary_provider import summarize_with_backend
-from my_ai_search.utils.logger import setup_logger
 from my_ai_search.utils.exceptions import DeepProcessException
+from my_ai_search.utils.logger import setup_logger
+
+from .summary_provider import summarize_with_backend
 
 logger = setup_logger("deep_process")
 
+_MINHASH_SIGNATURE_SIZE = 16
+_MINHASH_BANDS = 4
+
+
+class _FuzzCompatibility:
+    @staticmethod
+    def ratio(first: str, second: str) -> int:
+        return int(SequenceMatcher(None, first, second).ratio() * 100)
+
+
+fuzz = _FuzzCompatibility()
+
+
+def _tokenize_for_similarity(text: str) -> set[str]:
+    lowered = (text or "").lower()
+    tokens = re.findall(r"[\w\u4e00-\u9fff]+", lowered)
+    return set(tokens) or {lowered.strip()}
+
+
+def _char_ngrams(text: str, size: int = 3) -> set[str]:
+    lowered = (text or "").lower().strip()
+    if len(lowered) <= size:
+        return {lowered} if lowered else set()
+    return {lowered[index : index + size] for index in range(len(lowered) - size + 1)}
+
+
+def _minhash_signature(tokens: set[str], size: int = _MINHASH_SIGNATURE_SIZE) -> tuple[int, ...]:
+    signature = []
+    sorted_tokens = sorted(tokens)
+    for index in range(size):
+        best = None
+        salt = f"{index}:"
+        for token in sorted_tokens:
+            hashed = int(hashlib.md5(f"{salt}{token}".encode()).hexdigest(), 16)
+            if best is None or hashed < best:
+                best = hashed
+        signature.append(best or 0)
+    return tuple(signature)
+
+
+def _candidate_duplicate_pairs(chunks: list[dict]) -> set[tuple[str, str]]:
+    url_groups: dict[str, list[tuple[str, set[str], tuple[int, ...]]]] = {}
+    for chunk in chunks:
+        chunk_id = f"{chunk.get('url', 'unknown')}#chunk_{chunk.get('chunk_id', 0)}"
+        tokens = _tokenize_for_similarity(chunk.get("text", ""))
+        signature = _minhash_signature(tokens)
+        url_groups.setdefault(chunk.get("url", "unknown"), []).append((chunk_id, tokens, signature))
+
+    candidates: set[tuple[str, str]] = set()
+    band_size = max(1, _MINHASH_SIGNATURE_SIZE // _MINHASH_BANDS)
+
+    for group in url_groups.values():
+        if len(group) <= 8:
+            for first, second in combinations(group, 2):
+                candidates.add(tuple(sorted((first[0], second[0]))))
+            continue
+
+        buckets: dict[tuple[int, tuple[int, ...]], list[tuple[str, set[str]]]] = {}
+        ordered_group = []
+        for chunk_id, tokens, signature in group:
+            ordered_group.append((chunk_id, tokens, signature))
+            for band_index in range(_MINHASH_BANDS):
+                start = band_index * band_size
+                end = start + band_size
+                band_key = (band_index, signature[start:end])
+                buckets.setdefault(band_key, []).append((chunk_id, tokens))
+
+        for bucket_values in buckets.values():
+            if len(bucket_values) < 2:
+                continue
+            for first, second in combinations(bucket_values, 2):
+                ids = tuple(sorted((first[0], second[0])))
+                candidates.add(ids)
+
+        ordered_group.sort(key=lambda item: item[2])
+        for index in range(len(ordered_group) - 1):
+            first = ordered_group[index]
+            second = ordered_group[index + 1]
+            candidates.add(tuple(sorted((first[0], second[0]))))
+
+    return candidates
+
+
+def _candidate_similarity(first_text: str, second_text: str, first_tokens: set[str], second_tokens: set[str]) -> float:
+    if not first_tokens and not second_tokens:
+        return 1.0
+    overlap = len(first_tokens & second_tokens)
+    dice_score = (2 * overlap) / max(len(first_tokens) + len(second_tokens), 1)
+    sequence_score = SequenceMatcher(None, first_text, second_text).ratio()
+    first_ngrams = _char_ngrams(first_text)
+    second_ngrams = _char_ngrams(second_text)
+    ngram_overlap = len(first_ngrams & second_ngrams)
+    ngram_dice = (2 * ngram_overlap) / max(len(first_ngrams) + len(second_ngrams), 1)
+    return max(dice_score, sequence_score, ngram_dice)
+
+
+def _summarize_chunk(chunk: dict) -> str:
+    return generate_summary(chunk.get("text", ""))
+
+
+def _summaries_for_chunks(chunks: list[dict], max_concurrent: int) -> list[str]:
+    if not chunks:
+        return []
+    worker_count = max(1, min(max_concurrent, len(chunks)))
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        return list(executor.map(_summarize_chunk, chunks))
+
 
 def deep_process_page(
-    chunks: List[Dict],
+    chunks: list[dict],
     enable_summary: bool = True,
     enable_quality_check: bool = True,
     min_quality_score: float = 0.5,
-) -> List[Dict]:
+) -> list[dict]:
     """
     Per-page deep processing: quality check + quality filter.
 
@@ -36,8 +147,15 @@ def deep_process_page(
         return []
 
     final_chunks = []
+    summaries: list[str] = []
+    config = get_config()
+    if enable_summary:
+        summaries = _summaries_for_chunks(
+            chunks,
+            getattr(config.deep_process, "max_concurrent_summaries", 3),
+        )
 
-    for chunk in chunks:
+    for index, chunk in enumerate(chunks):
         chunk = chunk.copy()
         original_text = chunk.get("text", "")
         if not original_text.strip():
@@ -57,7 +175,7 @@ def deep_process_page(
 
         if enable_summary:
             try:
-                summary = generate_summary(original_text)
+                summary = summaries[index]
                 chunk["summary"] = summary
                 if summary:
                     chunk["snippet"] = summary
@@ -76,8 +194,8 @@ def deep_process_page(
 
 
 def dedup_chunks(
-    chunks: List[Dict], similarity_threshold: Optional[float] = None
-) -> List[Dict]:
+    chunks: list[dict], similarity_threshold: float | None = None
+) -> list[dict]:
     """
     Dedup chunks globally (across all pages).
     Should be called after per-page deep processing.
@@ -116,12 +234,12 @@ def dedup_chunks(
 
 
 def deep_process_content(
-    chunks: List[Dict],
+    chunks: list[dict],
     url: str = "",
     enable_summary: bool = True,
     enable_dedup: bool = True,
     enable_quality_check: bool = True,
-) -> List[Dict]:
+) -> list[dict]:
     """
     深度处理文本块
 
@@ -147,19 +265,22 @@ def deep_process_content(
     try:
         processed_chunks = []
         duplicate_info = {}
+        config = get_config()
+        summary_concurrency = getattr(config.deep_process, "max_concurrent_summaries", 3)
 
         if not enable_summary and not enable_quality_check and not enable_dedup:
             logger.info("All deep processing disabled, returning original chunks")
             return chunks
 
+        summaries = _summaries_for_chunks(chunks, summary_concurrency) if enable_summary else []
         if enable_summary or enable_quality_check:
-            for chunk in chunks:
+            for index, chunk in enumerate(chunks):
                 processed = chunk.copy()
                 original_text = chunk.get("text", "")
 
                 if enable_summary:
                     try:
-                        summary = generate_summary(original_text)
+                        summary = summaries[index]
                         processed["summary"] = summary
                         if summary:
                             processed["snippet"] = summary
@@ -208,7 +329,6 @@ def deep_process_content(
                     chunk["is_duplicate_of"] = mapping.get(chunk_id, "")
                     logger.debug(f"Marked chunk {chunk_id} as duplicate")
 
-        config = get_config()
         min_quality = config.deep_process.min_quality_score
 
         final_chunks = []
@@ -231,10 +351,10 @@ def deep_process_content(
 
     except Exception as e:
         logger.error(f"Deep processing failed: {e}")
-        raise DeepProcessException(f"Deep processing failed: {e}")
+        raise DeepProcessException(f"Deep processing failed: {e}") from e
 
 
-def estimate_query_relevance(query: str, chunk: Dict) -> float:
+def estimate_query_relevance(query: str, chunk: dict) -> float:
     """
     估算 chunk 与 query 的轻量相关性分数，用于挑选 deep_process 候选。
     """
@@ -284,10 +404,10 @@ def estimate_query_relevance(query: str, chunk: Dict) -> float:
 
 
 def select_deep_process_candidates(
-    chunks: List[Dict],
+    chunks: list[dict],
     query: str,
     max_candidates: int,
-) -> List[Dict]:
+) -> list[dict]:
     """
     从全部 chunk 中选出值得做 deep_process 的候选。
     """
@@ -305,7 +425,7 @@ def select_deep_process_candidates(
     return [chunk for _, _, chunk in selected]
 
 
-def generate_summary(text: str, max_length: Optional[int] = None) -> str:
+def generate_summary(text: str, max_length: int | None = None) -> str:
     """
     生成文本摘要（抽取式摘要）
 
@@ -378,10 +498,10 @@ def generate_summary(text: str, max_length: Optional[int] = None) -> str:
 
     except Exception as e:
         logger.error(f"Failed to generate summary: {e}")
-        raise DeepProcessException(f"Summary generation failed: {e}")
+        raise DeepProcessException(f"Summary generation failed: {e}") from e
 
 
-def assess_quality(text: str) -> Dict:
+def assess_quality(text: str) -> dict:
     """
     评估文本质量
 
@@ -414,8 +534,6 @@ def assess_quality(text: str) -> Dict:
         unique_chars = set(text)
         char_diversity = len(unique_chars) / max(len(text), 1)
         word_diversity = len(set(words)) / max(len(words), 1) if words else 0
-
-        from collections import Counter
 
         char_freq = Counter(text)
         most_common_char_ratio = char_freq.most_common(1)[0][1] / len(text)
@@ -465,12 +583,12 @@ def assess_quality(text: str) -> Dict:
 
     except Exception as e:
         logger.error(f"Failed to assess quality: {e}")
-        raise DeepProcessException(f"Quality assessment failed: {e}")
+        raise DeepProcessException(f"Quality assessment failed: {e}") from e
 
 
 def detect_duplicates(
-    chunks: List[Dict], similarity_threshold: Optional[float] = None
-) -> Dict:
+    chunks: list[dict], similarity_threshold: float | None = None
+) -> dict:
     """
     检测重复内容
 
@@ -510,7 +628,7 @@ def detect_duplicates(
         keep_ids = []
         mapping = {}
 
-        for text_hash, ids in hash_to_ids.items():
+        for _text_hash, ids in hash_to_ids.items():
             if len(ids) > 1:
                 keep_ids.append(ids[0])
                 for dup_id in ids[1:]:
@@ -520,42 +638,29 @@ def detect_duplicates(
                 keep_ids.append(ids[0])
 
         if threshold < 1.0:
-            from collections import defaultdict
-
-            url_groups = defaultdict(list)
-            for chunk in chunks:
-                chunk_id = (
-                    f"{chunk.get('url', 'unknown')}#chunk_{chunk.get('chunk_id', 0)}"
+            chunk_by_id = {
+                f"{chunk.get('url', 'unknown')}#chunk_{chunk.get('chunk_id', 0)}": chunk
+                for chunk in chunks
+            }
+            for first_id, second_id in _candidate_duplicate_pairs(chunks):
+                if second_id in duplicate_ids or first_id in duplicate_ids:
+                    continue
+                first_tokens = _tokenize_for_similarity(chunk_by_id[first_id].get("text", ""))
+                second_tokens = _tokenize_for_similarity(chunk_by_id[second_id].get("text", ""))
+                similarity = _candidate_similarity(
+                    chunk_by_id[first_id].get("text", ""),
+                    chunk_by_id[second_id].get("text", ""),
+                    first_tokens,
+                    second_tokens,
                 )
-                if chunk_id not in duplicate_ids:
-                    url_groups[chunk.get("url", "unknown")].append(chunk)
-
-            for url, group_chunks in url_groups.items():
-                for i, chunk1 in enumerate(group_chunks):
-                    id1 = f"{chunk1.get('url', 'unknown')}#chunk_{chunk1.get('chunk_id', 0)}"
-                    if id1 in duplicate_ids:
-                        continue
-
-                    text1 = chunk1.get("text", "")
-
-                    for chunk2 in group_chunks[i + 1 :]:
-                        id2 = f"{chunk2.get('url', 'unknown')}#chunk_{chunk2.get('chunk_id', 0)}"
-                        if id2 in duplicate_ids:
-                            continue
-
-                        text2 = chunk2.get("text", "")
-
-                        similarity = fuzz.ratio(text1, text2) / 100.0
-
-                        if similarity >= threshold:
-                            duplicate_ids.append(id2)
-                            mapping[id2] = id1
-                            if id2 in keep_ids:
-                                keep_ids.remove(id2)
-
-                            logger.debug(
-                                f"Found near-duplicate: {id1} vs {id2} (similarity: {similarity:.2f})"
-                            )
+                if similarity >= threshold:
+                    duplicate_ids.append(second_id)
+                    mapping[second_id] = first_id
+                    if second_id in keep_ids:
+                        keep_ids.remove(second_id)
+                    logger.debug(
+                        f"Found near-duplicate: {first_id} vs {second_id} (similarity: {similarity:.2f})"
+                    )
 
         logger.info(f"Duplicate detection: {len(duplicate_ids)} duplicates found")
 
@@ -567,10 +672,10 @@ def detect_duplicates(
 
     except Exception as e:
         logger.error(f"Failed to detect duplicates: {e}")
-        raise DeepProcessException(f"Duplicate detection failed: {e}")
+        raise DeepProcessException(f"Duplicate detection failed: {e}") from e
 
 
-def extract_key_info(text: str) -> Dict:
+def extract_key_info(text: str) -> dict:
     """
     提取关键信息
 
@@ -610,4 +715,4 @@ def extract_key_info(text: str) -> Dict:
 
     except Exception as e:
         logger.error(f"Failed to extract key info: {e}")
-        raise DeepProcessException(f"Key info extraction failed: {e}")
+        raise DeepProcessException(f"Key info extraction failed: {e}") from e

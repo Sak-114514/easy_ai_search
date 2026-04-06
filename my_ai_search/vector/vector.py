@@ -1,12 +1,14 @@
 import os
+import time
+from pathlib import Path
+
 import chromadb
 from chromadb.config import Settings
 from chromadb.utils import embedding_functions
-from typing import List, Dict, Optional
-from pathlib import Path
+
 from my_ai_search.config import get_config
-from my_ai_search.utils.logger import setup_logger
 from my_ai_search.utils.exceptions import VectorException
+from my_ai_search.utils.logger import setup_logger
 
 logger = setup_logger("vector")
 
@@ -134,7 +136,25 @@ def init_vector_db():
 
     except Exception as e:
         logger.error(f"Failed to initialize vector DB: {e}")
-        raise VectorException(f"Vector DB initialization failed: {e}")
+        raise VectorException(f"Vector DB initialization failed: {e}") from e
+
+
+def get_collection():
+    """
+    获取当前集合对象
+
+    Returns:
+        ChromaDB集合对象
+    """
+    global _collection
+
+    if _collection is None:
+        logger.warning("Collection not initialized, initializing...")
+        return init_vector_db()
+    if not _collection_exists(_collection):
+        _collection = None
+        return init_vector_db()
+    return _collection
 
 
 def _collection_exists(collection) -> bool:
@@ -147,7 +167,7 @@ def _collection_exists(collection) -> bool:
         return False
 
 
-def store_documents(chunks: List[Dict], metadata: Optional[Dict] = None) -> List[str]:
+def store_documents(chunks: list[dict], metadata: dict | None = None) -> list[str]:
     """
     存储文档块到向量数据库
 
@@ -168,7 +188,7 @@ def store_documents(chunks: List[Dict], metadata: Optional[Dict] = None) -> List
     logger.info(f"Storing {len(chunks)} documents to vector DB")
 
     try:
-        collection = init_vector_db()
+        collection = get_collection()
 
         ids = []
         documents = []
@@ -195,21 +215,64 @@ def store_documents(chunks: List[Dict], metadata: Optional[Dict] = None) -> List
             if "metadata" in chunk:
                 chunk_metadata.update(chunk["metadata"])
 
+            if chunk_metadata.get("search_request_id"):
+                ttl_seconds = int(
+                    chunk_metadata.get("ttl_seconds") or get_config().search.cache_ttl
+                )
+                chunk_metadata.setdefault("ephemeral", True)
+                chunk_metadata.setdefault("ttl_seconds", ttl_seconds)
+                chunk_metadata.setdefault("expires_at", time.time() + ttl_seconds)
+
             metadatas.append(chunk_metadata)
 
         logger.debug(f"Prepared {len(ids)} documents for storage")
 
-        collection.add(ids=ids, documents=documents, metadatas=metadatas)
+        try:
+            collection.add(ids=ids, documents=documents, metadatas=metadatas)
+        except Exception as add_error:
+            logger.warning(f"Collection add failed, retrying after reinit: {add_error}")
+            global _collection
+            _collection = None
+            collection = init_vector_db()
+            collection.add(ids=ids, documents=documents, metadatas=metadatas)
 
         logger.info(f"Successfully stored {len(ids)} documents")
         return ids
 
     except Exception as e:
         logger.error(f"Failed to store documents: {e}")
-        raise VectorException(f"Document storage failed: {e}")
+        raise VectorException(f"Document storage failed: {e}") from e
 
 
-def upsert_documents(chunks: List[Dict], metadata: Optional[Dict] = None) -> List[str]:
+def cleanup_expired_documents(now: float | None = None) -> list[str]:
+    current_time = now if now is not None else time.time()
+    try:
+        collection = get_collection()
+        try:
+            payload = collection.get()
+        except TypeError:
+            payload = collection.get(include=["metadatas"])
+
+        ids = payload.get("ids", [])
+        metadatas = payload.get("metadatas", [])
+        expired_ids = [
+            doc_id
+            for doc_id, metadata in zip(ids, metadatas, strict=False)
+            if metadata
+            and metadata.get("ephemeral")
+            and metadata.get("expires_at") is not None
+            and float(metadata["expires_at"]) <= current_time
+        ]
+        if expired_ids:
+            collection.delete(ids=expired_ids)
+            logger.info("Cleaned up %s expired ephemeral documents", len(expired_ids))
+        return expired_ids
+    except Exception as e:
+        logger.error(f"Failed to clean up expired documents: {e}")
+        raise VectorException(f"Expired document cleanup failed: {e}") from e
+
+
+def upsert_documents(chunks: list[dict], metadata: dict | None = None) -> list[str]:
     """
     覆盖写入文档块到向量数据库。
 
@@ -264,25 +327,7 @@ def upsert_documents(chunks: List[Dict], metadata: Optional[Dict] = None) -> Lis
 
     except Exception as e:
         logger.error(f"Failed to upsert documents: {e}")
-        raise VectorException(f"Document upsert failed: {e}")
-
-
-def get_collection():
-    """
-    获取当前集合对象
-
-    Returns:
-        ChromaDB集合对象
-    """
-    global _collection
-
-    if _collection is None:
-        logger.warning("Collection not initialized, initializing...")
-        return init_vector_db()
-    if not _collection_exists(_collection):
-        _collection = None
-        return init_vector_db()
-    return _collection
+        raise VectorException(f"Document upsert failed: {e}") from e
 
 
 def clear_collection():
@@ -317,10 +362,10 @@ def clear_collection():
 
     except Exception as e:
         logger.error(f"Failed to clear collection: {e}")
-        raise VectorException(f"Collection clearing failed: {e}")
+        raise VectorException(f"Collection clearing failed: {e}") from e
 
 
-def get_collection_stats() -> Dict:
+def get_collection_stats() -> dict:
     """
     获取集合统计信息
 
@@ -343,7 +388,7 @@ def get_collection_stats() -> Dict:
 
     except Exception as e:
         logger.error(f"Failed to get collection stats: {e}")
-        raise VectorException(f"Stats retrieval failed: {e}")
+        raise VectorException(f"Stats retrieval failed: {e}") from e
 
 
 def reset_vector_db():
@@ -373,4 +418,4 @@ def reset_vector_db():
 
     except Exception as e:
         logger.error(f"Failed to reset vector DB: {e}")
-        raise VectorException(f"Vector DB reset failed: {e}")
+        raise VectorException(f"Vector DB reset failed: {e}") from e

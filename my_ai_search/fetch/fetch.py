@@ -4,7 +4,6 @@ import json
 import ssl
 import time
 from itertools import count
-from typing import Any, Dict, Optional
 from urllib.parse import urlparse, urlunparse
 
 import requests
@@ -75,6 +74,7 @@ class LightPandaSessionPool:
         self._semaphore = asyncio.Semaphore(self._max_concurrent)
         self._connect_lock = asyncio.Lock()
         self._send_lock = asyncio.Lock()
+        self._target_lock = asyncio.Lock()
         self._closed = False
         self._command_ids = count(1)
         self._client_session = None
@@ -83,22 +83,23 @@ class LightPandaSessionPool:
         self._pending: dict[int, asyncio.Future] = {}
         self._session_events: dict[str, asyncio.Queue] = {}
 
-    async def fetch_html(self, url: str, timeout: int) -> Dict[str, Any]:
+    async def fetch_html(self, url: str, timeout: int) -> dict[str, object]:
         async with self._semaphore:
             start_time = time.time()
             target_id = None
             session_id = None
             try:
                 await self._ensure_connection()
-                target_id = await self._create_target(url)
-                session_id = await self._attach_target(target_id)
-                await self._enable_page(session_id)
-                await self._navigate(session_id, url, timeout)
-                title = await self._evaluate_string(session_id, "document.title || ''")
-                html = await self._evaluate_string(
-                    session_id,
-                    "document.documentElement ? document.documentElement.outerHTML : ''",
-                )
+                async with self._target_lock:
+                    target_id = await self._create_target(url)
+                    session_id = await self._attach_target(target_id)
+                    await self._enable_page(session_id)
+                    await self._navigate(session_id, url, timeout)
+                    title = await self._evaluate_string(session_id, "document.title || ''")
+                    html = await self._evaluate_string(
+                        session_id,
+                        "document.documentElement ? document.documentElement.outerHTML : ''",
+                    )
                 duration = time.time() - start_time
                 logger.info(
                     "Successfully fetched with LightPanda CDP: %s, title: %s",
@@ -252,17 +253,17 @@ class LightPandaSessionPool:
     async def _send_command(
         self,
         method: str,
-        params: Optional[Dict[str, Any]] = None,
+        params: dict[str, object] | None = None,
         *,
-        session_id: Optional[str] = None,
-        timeout: Optional[float] = None,
-    ) -> Dict[str, Any]:
+        session_id: str | None = None,
+        timeout: float | None = None,
+    ) -> dict[str, object]:
         await self._ensure_connection()
         command_id = next(self._command_ids)
         loop = asyncio.get_running_loop()
         future = loop.create_future()
         self._pending[command_id] = future
-        payload: Dict[str, Any] = {"id": command_id, "method": method, "params": params or {}}
+        payload: dict[str, object] = {"id": command_id, "method": method, "params": params or {}}
         if session_id:
             payload["sessionId"] = session_id
 
@@ -275,13 +276,13 @@ class LightPandaSessionPool:
             raise FetchException("", f"CDP command {method} failed: {message}")
         return response.get("result", {})
 
-    async def _wait_for_event(self, session_id: str, method: str, timeout: float) -> Dict[str, Any]:
+    async def _wait_for_event(self, session_id: str, method: str, timeout: float) -> dict[str, object]:
         queue = self._session_events.setdefault(session_id, asyncio.Queue())
         deadline = time.monotonic() + timeout
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise asyncio.TimeoutError(f"Timed out waiting for {method}")
+                raise TimeoutError(f"Timed out waiting for {method}")
             payload = await asyncio.wait_for(queue.get(), timeout=remaining)
             if payload.get("method") == method:
                 return payload.get("params", {})
@@ -321,7 +322,7 @@ class LightPandaSessionPool:
 
         try:
             await self._wait_for_event(session_id, "Page.loadEventFired", timeout=timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.debug("Page.loadEventFired timed out for %s; continuing with snapshot", url)
 
     async def _evaluate_string(self, session_id: str, expression: str) -> str:
@@ -343,7 +344,7 @@ class LightPandaSessionPool:
             await self._send_command("Target.closeTarget", {"targetId": target_id}, timeout=2)
 
 
-async def fetch_page(url: str, timeout: Optional[int] = None) -> Dict:
+async def fetch_page(url: str, timeout: int | None = None) -> dict[str, object]:
     """
     抓取单个页面（异步版本）
 
@@ -358,10 +359,11 @@ async def fetch_page(url: str, timeout: Optional[int] = None) -> Dict:
     logger.info("Fetching page: %s", url)
 
     if _use_requests:
-        return _fetch_with_requests(url, actual_timeout)
+        return _ensure_fetch_result_fields(_fetch_with_requests(url, actual_timeout))
 
     try:
         http_result = await _fetch_with_aiohttp(url, actual_timeout)
+        http_result = _ensure_fetch_result_fields(http_result)
         if http_result["success"] and _is_content_sufficient(http_result["html"]):
             logger.info("HTTP fetch sufficient for %s, skipping LightPanda", url)
             return http_result
@@ -383,6 +385,7 @@ async def fetch_page(url: str, timeout: Optional[int] = None) -> Dict:
 
     try:
         result = await _fetch_with_lightpanda(url, actual_timeout)
+        result = _ensure_fetch_result_fields(result)
         if result["success"]:
             if _should_skip_requests_fallback(
                 url=url,
@@ -406,24 +409,29 @@ async def fetch_page(url: str, timeout: Optional[int] = None) -> Dict:
         logger.error("LightPanda CDP failed for %s: %s", url, exc)
 
     logger.info("Falling back to requests for %s", url)
-    return _fetch_with_requests(url, actual_timeout)
+    return _ensure_fetch_result_fields(_fetch_with_requests(url, actual_timeout))
 
 
-async def _fetch_with_aiohttp(url: str, timeout: int) -> Dict:
+async def _fetch_with_aiohttp(url: str, timeout: int) -> dict[str, object]:
     start_time = time.time()
 
     try:
         import aiohttp
 
         headers = {
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            ),
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.5",
         }
 
         timeout_obj = aiohttp.ClientTimeout(total=timeout)
-        async with aiohttp.ClientSession(timeout=timeout_obj, headers=headers) as session:
-            async with session.get(url, ssl=_SSL_CONTEXT) as response:
+        async with aiohttp.ClientSession(
+            timeout=timeout_obj,
+            headers=headers,
+        ) as session, session.get(url, ssl=_SSL_CONTEXT) as response:
                 raw = await response.read()
                 encoding = response.charset
                 if not encoding or encoding.lower() in {"iso-8859-1"}:
@@ -468,7 +476,7 @@ async def _fetch_with_aiohttp(url: str, timeout: int) -> Dict:
                     error=None,
                     duration=duration,
                 )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         duration = time.time() - start_time
         logger.warning("aiohttp timeout for %s", url)
         return {
@@ -554,7 +562,7 @@ def _extract_title(html: str) -> str:
         return ""
 
 
-def _extract_fetch_artifacts(html: str, title: str) -> Dict[str, str]:
+def _extract_fetch_artifacts(html: str, title: str) -> dict[str, str]:
     if not html:
         return {}
 
@@ -567,7 +575,12 @@ def _extract_fetch_artifacts(html: str, title: str) -> Dict[str, str]:
             or soup.find("main")
             or soup.find(
                 "div",
-                class_=lambda value: value and ("content" in value.lower() or "article" in value.lower() or "post" in value.lower()),
+                class_=lambda value: value
+                and (
+                    "content" in value.lower()
+                    or "article" in value.lower()
+                    or "post" in value.lower()
+                ),
             )
             or soup.body
         )
@@ -596,10 +609,10 @@ def _build_fetch_result(
     html: str,
     title: str,
     success: bool,
-    error: Optional[str],
+    error: str | None,
     duration: float,
-) -> Dict[str, Any]:
-    result: Dict[str, Any] = {
+) -> dict[str, object]:
+    result: dict[str, object] = {
         "url": url,
         "html": html,
         "title": title,
@@ -609,6 +622,16 @@ def _build_fetch_result(
     }
     if success and html:
         result.update(_extract_fetch_artifacts(html, title))
+    return result
+
+
+def _ensure_fetch_result_fields(result: dict[str, object]) -> dict[str, object]:
+    if not result:
+        return {}
+    if result.get("success") and result.get("html"):
+        enriched = dict(result)
+        enriched.update(_extract_fetch_artifacts(enriched.get("html", ""), enriched.get("title", "")))
+        return enriched
     return result
 
 
@@ -638,9 +661,7 @@ def _looks_like_listing_or_sparse_page(url: str, title: str, html: str) -> bool:
     if any(hint in lowered_title for hint in LISTING_TITLE_HINTS):
         return True
     preview = _extract_preview_text(html)
-    if len(preview) < MIN_CONTENT_LENGTH // 2:
-        return True
-    return False
+    return len(preview) < MIN_CONTENT_LENGTH // 2
 
 
 def _should_skip_browser_fallback(url: str, html: str, title: str) -> bool:
@@ -655,7 +676,7 @@ def _should_skip_requests_fallback(
     url: str,
     html: str,
     title: str,
-    error: Optional[str] = None,
+    error: str | None = None,
 ) -> bool:
     lowered_error = (error or "").lower()
     if (
@@ -688,17 +709,20 @@ async def _get_lightpanda_session_pool() -> LightPandaSessionPool:
         return _BROWSER_POOL
 
 
-async def _fetch_with_lightpanda(url: str, timeout: int) -> Dict:
+async def _fetch_with_lightpanda(url: str, timeout: int) -> dict[str, object]:
     pool = await _get_lightpanda_session_pool()
     return await pool.fetch_html(url, timeout)
 
 
-def _fetch_with_requests(url: str, timeout: int) -> Dict:
+def _fetch_with_requests(url: str, timeout: int) -> dict[str, object]:
     start_time = time.time()
 
     try:
         headers = {
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+            ),
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.5",
         }
@@ -752,7 +776,7 @@ def close_browser():
     loop.create_task(pool.close())
 
 
-def fetch_page_sync(url: str, timeout: Optional[int] = None) -> Dict:
+def fetch_page_sync(url: str, timeout: int | None = None) -> dict[str, object]:
     return asyncio.run(fetch_page(url, timeout))
 
 

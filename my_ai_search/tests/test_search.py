@@ -1,21 +1,23 @@
-import sys
 import os
+import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from unittest.mock import patch
+
 from search.search import (
-    search,
-    _parse_results,
-    _build_refined_query,
     _build_recall_boost_query,
+    _build_refined_query,
+    _extract_query_terms,
+    _merge_search_results,
     _needs_recall_boost,
     _needs_source_profile_boost,
+    _parse_results,
     _should_trigger_second_pass,
-    _merge_search_results,
-    _extract_query_terms,
+    search,
 )
+
 from my_ai_search.utils.exceptions import SearchException
-from unittest.mock import patch
 
 
 def test_normal_search():
@@ -110,7 +112,7 @@ def test_result_fields():
             assert isinstance(result["title"], str), "Title should be string"
             assert isinstance(result["url"], str), "URL should be string"
             assert isinstance(result["content"], str), "Content should be string"
-            assert isinstance(result["score"], (int, float)), "Score should be numeric"
+            assert isinstance(result["score"], int | float), "Score should be numeric"
             assert result["url"].startswith("http"), (
                 f"URL should start with http: {result['url']}"
             )
@@ -529,7 +531,10 @@ def test_should_trigger_second_pass_for_low_value_top_results():
 
 def test_recall_boost_query_for_howto_and_explanation():
     assert _build_recall_boost_query("家常宫保鸡丁做法和技巧", {"intent": "howto"}).endswith("家常 做法 图文 菜谱")
-    assert _build_recall_boost_query("量子纠缠为什么不能超光速通信", {"intent": "explanation"}).endswith("原理 科普 详解")
+    assert _build_recall_boost_query(
+        "量子纠缠为什么不能超光速通信",
+        {"intent": "explanation"},
+    ).endswith("原理 科普 详解")
 
 
 def test_needs_recall_boost_when_results_too_few():

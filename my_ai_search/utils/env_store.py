@@ -1,18 +1,14 @@
 import os
 from pathlib import Path
-from typing import Dict
 
 from my_ai_search.utils.paths import get_config_file
 
 
-def persist_env_values(values: Dict[str, object]) -> Path:
+def persist_env_values(values: dict[str, object]) -> Path:
     env_file = get_config_file()
     env_file.parent.mkdir(parents=True, exist_ok=True)
 
-    if env_file.exists():
-        lines = env_file.read_text(encoding="utf-8").splitlines()
-    else:
-        lines = []
+    lines = env_file.read_text(encoding="utf-8").splitlines() if env_file.exists() else []
 
     remaining = {key: _stringify_env_value(value) for key, value in values.items()}
     updated_lines = []

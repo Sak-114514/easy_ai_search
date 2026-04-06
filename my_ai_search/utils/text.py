@@ -1,5 +1,4 @@
 import re
-from typing import List
 from urllib.parse import urlparse
 
 _QUERY_STOP_TERMS = {
@@ -93,12 +92,12 @@ def canonical_path_key(url: str) -> str:
 
 
 
-def extract_query_terms(query: str, limit: int = 8) -> List[str]:
+def extract_query_terms(query: str, limit: int = 8) -> list[str]:
     if not (query or "").strip():
         return []
 
     fragments = re.findall(r"[a-z0-9.+#-]+|[\u4e00-\u9fff]+", query.lower())
-    terms: List[str] = []
+    terms: list[str] = []
     seen = set()
 
     for fragment in fragments:
@@ -130,6 +129,4 @@ def looks_non_article_page(url: str, title: str, query: str) -> bool:
 
     if any(hint in lowered_url for hint in _LOW_VALUE_URL_HINTS):
         return True
-    if any(hint in lowered_title for hint in _LOW_VALUE_TITLE_HINTS):
-        return True
-    return False
+    return any(hint in lowered_title for hint in _LOW_VALUE_TITLE_HINTS)

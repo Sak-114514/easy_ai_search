@@ -1,3 +1,4 @@
+import asyncio
 import importlib
 from pathlib import Path
 from types import SimpleNamespace
@@ -5,7 +6,8 @@ from types import SimpleNamespace
 import pytest
 
 import my_ai_search.fetch.fetch as fetch_module
-import my_ai_search.search.search as search_module
+
+search_module = importlib.import_module("my_ai_search.search.search")
 
 
 @pytest.mark.asyncio
@@ -25,6 +27,7 @@ async def test_fetch_page_returns_reusable_plain_data_fields(monkeypatch):
         "get_config",
         lambda: SimpleNamespace(lightpanda=SimpleNamespace(timeout=5, max_concurrent=2)),
     )
+    monkeypatch.setattr(fetch_module, "_use_requests", False)
     monkeypatch.setattr(fetch_module, "_fetch_with_aiohttp", fake_aiohttp)
     monkeypatch.setattr(fetch_module, "_is_content_sufficient", lambda html: True)
 
@@ -71,3 +74,54 @@ def test_search_domain_rules_move_out_of_search_module():
     source = Path(search_module.__file__).read_text(encoding="utf-8")
     assert "_PREFERRED_DOMAINS =" not in source
     assert "_BLOCKED_DOMAINS =" not in source
+
+
+@pytest.mark.asyncio
+async def test_lightpanda_session_pool_serializes_target_lifecycle(monkeypatch):
+    pool = fetch_module.LightPandaSessionPool("ws://127.0.0.1:9222", timeout=5, max_concurrent=2)
+    state = {"active": 0, "max_active": 0, "create_calls": 0}
+
+    async def fake_ensure_connection():
+        return None
+
+    async def fake_create_target(url):
+        state["active"] += 1
+        state["max_active"] = max(state["max_active"], state["active"])
+        state["create_calls"] += 1
+        await asyncio.sleep(0.05)
+        return f"target-{state['create_calls']}"
+
+    async def fake_attach_target(target_id):
+        return f"session-{target_id}"
+
+    async def fake_enable_page(session_id):
+        return None
+
+    async def fake_navigate(session_id, url, timeout):
+        return None
+
+    async def fake_evaluate_string(session_id, expression):
+        if "document.title" in expression:
+            return f"title-{session_id}"
+        state["active"] -= 1
+        return f"<html>{session_id}</html>"
+
+    async def fake_close_target(target_id):
+        return None
+
+    monkeypatch.setattr(pool, "_ensure_connection", fake_ensure_connection)
+    monkeypatch.setattr(pool, "_create_target", fake_create_target)
+    monkeypatch.setattr(pool, "_attach_target", fake_attach_target)
+    monkeypatch.setattr(pool, "_enable_page", fake_enable_page)
+    monkeypatch.setattr(pool, "_navigate", fake_navigate)
+    monkeypatch.setattr(pool, "_evaluate_string", fake_evaluate_string)
+    monkeypatch.setattr(pool, "_safe_close_target", fake_close_target)
+
+    results = await asyncio.gather(
+        pool.fetch_html("https://example.com/a", timeout=5),
+        pool.fetch_html("https://example.com/b", timeout=5),
+    )
+
+    assert all(result["success"] for result in results)
+    assert state["create_calls"] == 2
+    assert state["max_active"] == 1, "target creation should be serialized to avoid CDP TargetAlreadyLoaded races"

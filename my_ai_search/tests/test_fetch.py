@@ -1,20 +1,20 @@
-import sys
 import os
+import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+
 from fetch.fetch import (
-    fetch_page_sync,
-    close_browser,
-    enable_requests_mode,
+    _looks_like_listing_or_sparse_page,
     _looks_like_shell_page,
     _looks_like_video_page,
-    _looks_like_listing_or_sparse_page,
     _should_skip_browser_fallback,
     _should_skip_requests_fallback,
+    close_browser,
+    enable_requests_mode,
+    fetch_page_sync,
 )
 from utils.exceptions import FetchException
-import asyncio
 
 # 启用 requests 模式以避免 LightPanda 连接问题
 enable_requests_mode()
@@ -58,7 +58,7 @@ def test_fetch_empty_url():
 
     try:
         fetch_page_sync("")
-        assert False, "Should raise FetchException"
+        raise AssertionError("Should raise FetchException")
     except FetchException as e:
         print(f"Correctly caught error: {e}")
         assert "URL cannot be empty" in str(e)

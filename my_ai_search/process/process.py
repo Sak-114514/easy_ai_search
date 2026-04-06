@@ -6,12 +6,12 @@
 """
 
 import re
-import threading
+
 from bs4 import BeautifulSoup
-from typing import List, Dict
+
 from my_ai_search.config import get_config
-from my_ai_search.utils.logger import setup_logger
 from my_ai_search.utils.exceptions import ProcessException
+from my_ai_search.utils.logger import setup_logger
 
 logger = setup_logger("process")
 
@@ -53,9 +53,6 @@ READABILITY_EXCLUDED_HINTS = [
     "scheduled maintenance",
     "security verification required",
 ]
-_READABILITY_LOCK = threading.Lock()
-
-
 def _is_garbled(text: str) -> bool:
     """
     检测文本是否为乱码（编码错误导致的不可读内容）
@@ -94,10 +91,13 @@ def _strip_template_noise(text: str) -> str:
             removed += 1
             continue
 
-        if len(line) < 12 and re.fullmatch(r"[A-Za-z ]+", line):
-            if line.lower() in {"menu", "search", "home", "community"}:
-                removed += 1
-                continue
+        if (
+            len(line) < 12
+            and re.fullmatch(r"[A-Za-z ]+", line)
+            and line.lower() in {"menu", "search", "home", "community"}
+        ):
+            removed += 1
+            continue
 
         cleaned_lines.append(line)
 
@@ -133,7 +133,7 @@ def _is_template_shell(text: str) -> bool:
     return noisy_lines >= max(2, len(lines[:12]) // 2)
 
 
-def process_content(html: str, url: str = "") -> List[Dict]:
+def process_content(html: str, url: str = "") -> list[dict]:
     """
     完整处理流程：HTML → 清洗 → 规范化 → 分块
 
@@ -226,7 +226,7 @@ def process_content(html: str, url: str = "") -> List[Dict]:
 
     except Exception as e:
         logger.error(f"Failed to process content from {url}: {e}")
-        raise ProcessException(f"Content processing failed: {e}")
+        raise ProcessException(f"Content processing failed: {e}") from e
 
 
 def clean_html(html: str, url: str = "") -> str:
@@ -249,8 +249,7 @@ def clean_html(html: str, url: str = "") -> str:
         logger.debug(f"Skipping readability for suspected shell/maintenance page: {url or 'unknown'}")
     else:
         try:
-            with _READABILITY_LOCK:
-                text = _extract_with_readability(html)
+            text = _extract_with_readability(html)
             if len(text.strip()) >= MIN_USEFUL_LENGTH:
                 logger.debug(
                     f"readability extracted {len(text)} chars from {url or 'unknown'}"
@@ -327,7 +326,7 @@ def _extract_with_bs4(html: str) -> str:
         ]
         for class_name in ad_classes:
             for element in soup.find_all(
-                class_=lambda x: x and class_name in str(x).lower()
+                class_=lambda x, current=class_name: x and current in str(x).lower()
             ):
                 element.decompose()
 
@@ -369,10 +368,10 @@ def _extract_with_bs4(html: str) -> str:
 
     except Exception as e:
         logger.error(f"Failed to clean HTML with BS4: {e}")
-        raise ProcessException(f"HTML cleaning failed: {e}")
+        raise ProcessException(f"HTML cleaning failed: {e}") from e
 
 
-def chunk_text(text: str, chunk_size: int = None, overlap: int = None) -> List[str]:
+def chunk_text(text: str, chunk_size: int = None, overlap: int = None) -> list[str]:
     """
     文本分块（按段落边界切分，避免从句子中间截断）
 
@@ -430,15 +429,15 @@ def chunk_text(text: str, chunk_size: int = None, overlap: int = None) -> List[s
 
     except Exception as e:
         logger.error(f"Failed to chunk text: {e}")
-        raise ProcessException(f"Text chunking failed: {e}")
+        raise ProcessException(f"Text chunking failed: {e}") from e
 
 
 def limit_chunks_per_page(
-    chunks: List[str],
+    chunks: list[str],
     max_chunks: int,
     head_chunks: int,
     tail_chunks: int,
-) -> tuple[List[str], List[int]]:
+) -> tuple[list[str], list[int]]:
     """
     对超长页面做稳定采样：
     1. 保留开头若干块，避免丢失摘要/导语
@@ -472,7 +471,7 @@ def limit_chunks_per_page(
     return limited_chunks, selected_indices
 
 
-def _sample_middle_indices(start: int, end: int, budget: int) -> List[int]:
+def _sample_middle_indices(start: int, end: int, budget: int) -> list[int]:
     if budget <= 0 or end <= start:
         return []
 

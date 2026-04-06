@@ -1,82 +1,100 @@
+import time
+from collections import OrderedDict
+
 import requests
-from typing import List, Dict, Optional
-import re
 
 from my_ai_search.config import get_config
 from my_ai_search.search.intent_provider import get_search_intent
-from my_ai_search.utils.logger import setup_logger
 from my_ai_search.utils.exceptions import SearchException
+from my_ai_search.utils.logger import setup_logger
 from my_ai_search.utils.text import extract_query_terms, normalize_domain
 
 logger = setup_logger("search")
 
-_PREFERRED_DOMAINS = [
-    "wikipedia.org", "baike.baidu.com",
-    "docs.python.org", "rust-lang.org", "go.dev", "developer.mozilla.org", "mozilla.org",
-    "github.com", "stackoverflow.com",
-    "csdn.net", "cnblogs.com", "juejin.cn", "segmentfault.com",
-    "runoob.com", "w3school",
-    "harmonyos.com", "developer.huawei.com",
-    "meishichina.com", "xiangha.com", "xiachufang.com", "dachu.co",
-]
+_SEARCH_CACHE: OrderedDict[tuple[str, str, str], tuple[float, dict]] = OrderedDict()
 
-_BLOCKED_DOMAINS = [
-    "pinterest.com",
-    "quora.com/unanswered",
-    "zhihu.com",
-    "zhuanlan.zhihu.com",
-    "pornhub.com",
-    "apps.microsoft.com",
-    "onlinedown.net",
-    "bokep",
-]
 
-_BLOCKED_TITLE_PATTERNS = [
-    "just a moment",
-    "sign in to your account",
-    "登录",
-    "注册",
-    "open enrollment",
-]
+def _search_config():
+    config = get_config()
+    return getattr(config, "search", None)
 
-_LOW_VALUE_URL_HINTS = [
-    "/video/",
-    "/shorts/",
-]
-_LOW_VALUE_RESULT_HINTS = [
-    "github.com/",
-    "/pulls",
-    "/issues",
-    "/releases",
-    "reddit.com/r/",
-    "/comments/",
-    "bilibili.com/video/",
-    "haokan.baidu.com/v",
-    "quanmin.baidu.com/sv",
-]
-_LOW_VALUE_TITLE_HINTS = [
-    "pull requests",
-    "issues",
-    "discussion",
-    "comments",
-    "论坛",
-    "社区",
-    "视频",
-]
-_RECIPE_DOMAINS = ("meishichina.com", "xiangha.com", "xiachufang.com", "dachu.co", "douguo.com")
-_SCIENCE_DOMAINS = ("wikipedia.org", "baike.baidu.com", "163.com", "sohu.com", "news.qq.com")
-_PRODUCT_DOMAINS = ("36kr.com", "zol.com.cn", "ithome.com", "pcbeta.com", "theverge.com", "engadget.com")
-_NEWS_DOMAINS = ("reuters.com", "apnews.com", "finance.sina.com.cn", "news.qq.com", "36kr.com", "ithome.com", "theverge.com", "techcrunch.com", "cn.dataconomy.com")
-_SOCIAL_DOMAINS = ("x.com", "twitter.com", "weibo.com", "reddit.com", "news.ycombinator.com", "mastodon.social")
-_TECH_COMMUNITY_DOMAINS = ("github.com", "stackoverflow.com", "reddit.com", "news.ycombinator.com", "juejin.cn", "csdn.net", "cnblogs.com", "segmentfault.com")
+
+def _domain_rules():
+    rules = _search_config()
+    if rules is None:
+        return type(
+            "SearchRulesFallback",
+            (),
+            {
+                "preferred_domains": (),
+                "blocked_domains": (),
+                "blocked_title_patterns": (),
+                "low_value_url_hints": ("/video/", "/shorts/"),
+                "low_value_result_hints": (),
+                "low_value_title_hints": (),
+                "recipe_domains": (),
+                "science_domains": (),
+                "product_domains": (),
+                "news_domains": (),
+                "social_domains": (),
+                "tech_community_domains": (),
+                "cache_ttl": 300,
+                "cache_max_entries": 128,
+            },
+        )()
+    return rules
+
+
+def _domain_rules_signature() -> str:
+    rules = _domain_rules()
+    return "|".join(
+        [
+            ",".join(rules.preferred_domains),
+            ",".join(rules.blocked_domains),
+            ",".join(rules.blocked_title_patterns),
+        ]
+    )
+
+
+def _normalize_cache_query(query: str) -> str:
+    return " ".join(query.lower().split())
+
+
+def _cache_key(query: str, engines: str | None) -> tuple[str, str, str]:
+    return (_normalize_cache_query(query), (engines or "").strip().lower(), _domain_rules_signature())
+
+
+def _get_cached_response(query: str, engines: str | None) -> dict | None:
+    config = _domain_rules()
+    key = _cache_key(query, engines)
+    entry = _SEARCH_CACHE.get(key)
+    if entry is None:
+        return None
+    cached_at, payload = entry
+    if time.time() - cached_at > config.cache_ttl:
+        _SEARCH_CACHE.pop(key, None)
+        return None
+    _SEARCH_CACHE.move_to_end(key)
+    return payload
+
+
+def _store_cached_response(query: str, engines: str | None, payload: dict) -> None:
+    config = _domain_rules()
+    key = _cache_key(query, engines)
+    _SEARCH_CACHE[key] = (time.time(), payload)
+    _SEARCH_CACHE.move_to_end(key)
+    while len(_SEARCH_CACHE) > config.cache_max_entries:
+        _SEARCH_CACHE.popitem(last=False)
+
+
 def search(
     query: str,
-    max_results: Optional[int] = None,
-    engines: Optional[str] = None,
+    max_results: int | None = None,
+    engines: str | None = None,
     allow_second_pass: bool = True,
-    intent_plan: Optional[Dict] = None,
-    tool_context: Optional[Dict] = None,
-) -> List[Dict]:
+    intent_plan: dict | None = None,
+    tool_context: dict | None = None,
+) -> list[dict]:
     """
     执行搜索查询
 
@@ -157,7 +175,7 @@ def search(
 
     except Exception as e:
         logger.error(f"Search failed: {e}")
-        raise SearchException(f"Search operation failed: {e}")
+        raise SearchException(f"Search operation failed: {e}") from e
 
 
 def _call_searxng_api(query: str, params: dict) -> dict:
@@ -180,7 +198,10 @@ def _call_searxng_api(query: str, params: dict) -> dict:
     try:
         logger.debug(f"Calling SearXNG API: {api_url}")
         headers = {
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+            ),
             "Accept": "application/json",
             "Accept-Language": "en-US,en;q=0.9",
             "Content-Type": "application/x-www-form-urlencoded",
@@ -198,23 +219,23 @@ def _call_searxng_api(query: str, params: dict) -> dict:
         data = response.json()
         return data
 
-    except requests.exceptions.Timeout:
-        raise SearchException("SearXNG API timeout")
-    except requests.exceptions.ConnectionError:
-        raise SearchException("Failed to connect to SearXNG")
+    except requests.exceptions.Timeout as exc:
+        raise SearchException("SearXNG API timeout") from exc
+    except requests.exceptions.ConnectionError as exc:
+        raise SearchException("Failed to connect to SearXNG") from exc
     except requests.exceptions.HTTPError as e:
-        raise SearchException(f"SearXNG API returned HTTP {e.response.status_code}")
+        raise SearchException(f"SearXNG API returned HTTP {e.response.status_code}") from e
     except Exception as e:
-        raise SearchException(f"Unexpected error: {e}")
+        raise SearchException(f"Unexpected error: {e}") from e
 
 
 def _parse_results(
     response: dict,
     max_results: int,
     query: str = "",
-    intent_plan: Optional[Dict] = None,
-    tool_context: Optional[Dict] = None,
-) -> List[Dict]:
+    intent_plan: dict | None = None,
+    tool_context: dict | None = None,
+) -> list[dict]:
     """
     解析SearXNG响应，优先返回高质量来源
 
@@ -272,7 +293,7 @@ def _parse_results(
 
     # 取 top N 并清理临时字段，同时限制同域名霸榜
     final = []
-    domain_counts: Dict[str, int] = {}
+    domain_counts: dict[str, int] = {}
     for r in parsed_results:
         domain = _normalize_domain(r.get("url", ""))
         if domain_counts.get(domain, 0) >= max_results_per_domain:
@@ -319,7 +340,7 @@ def _retry_search(
                 )
                 continue
             else:
-                logger.error(f"All search attempts failed")
+                logger.error("All search attempts failed")
                 break
 
     raise last_exception
@@ -328,15 +349,18 @@ def _retry_search(
 def _run_search_once(
     query: str,
     fetch_count: int,
-    engines: Optional[str],
+    engines: str | None,
     timeout: float,
-    intent_plan: Optional[Dict] = None,
-    tool_context: Optional[Dict] = None,
-) -> List[Dict]:
+    intent_plan: dict | None = None,
+    tool_context: dict | None = None,
+) -> list[dict]:
     params = {"q": query, "format": "json", "language": "auto", "pageno": 1}
     if engines:
         params["engines"] = engines
-    response_data = _retry_search(query, params, timeout)
+    response_data = _get_cached_response(query, engines)
+    if response_data is None:
+        response_data = _retry_search(query, params, timeout)
+        _store_cached_response(query, engines, response_data)
     return _parse_results(
         response_data,
         fetch_count,
@@ -347,21 +371,18 @@ def _run_search_once(
 
 
 def _should_block_result(url: str, title: str) -> bool:
+    rules = _domain_rules()
     url_lower = url.lower()
     title_lower = title.lower()
 
-    for domain in _BLOCKED_DOMAINS:
+    for domain in rules.blocked_domains:
         if domain in url_lower:
             return True
 
-    for pattern in _BLOCKED_TITLE_PATTERNS:
-        if pattern in title_lower:
-            return True
-
-    return False
+    return any(pattern in title_lower for pattern in rules.blocked_title_patterns)
 
 
-def _normalize_domain_hints(domains: Optional[List[str]]) -> set[str]:
+def _normalize_domain_hints(domains: list[str] | None) -> set[str]:
     normalized = set()
     for domain in domains or []:
         value = str(domain).strip().lower()
@@ -378,34 +399,35 @@ def _domain_matches_hints(domain: str, hints: set[str]) -> bool:
 
 
 def _estimate_source_profile_score(domain: str, url_lower: str, title_lower: str, source_profile: str) -> float:
+    rules = _domain_rules()
     profile = (source_profile or "general").strip().lower()
     score = 0.0
 
     if profile == "official_news":
-        if any(marker in domain for marker in _NEWS_DOMAINS):
+        if any(marker in domain for marker in rules.news_domains):
             score += 4.0
-        if any(marker in domain for marker in _SOCIAL_DOMAINS):
+        if any(marker in domain for marker in rules.social_domains):
             score -= 2.5
         if "forum" in domain or "forums." in domain:
             score -= 2.0
     elif profile == "social_realtime":
-        if any(marker in domain for marker in _SOCIAL_DOMAINS):
+        if any(marker in domain for marker in rules.social_domains):
             score += 5.0
-        if any(marker in domain for marker in _NEWS_DOMAINS):
+        if any(marker in domain for marker in rules.news_domains):
             score += 1.2
         if "wikipedia.org" in url_lower or "baike.baidu.com" in url_lower:
             score -= 1.5
     elif profile == "official_plus_social":
-        if any(marker in domain for marker in _NEWS_DOMAINS):
+        if any(marker in domain for marker in rules.news_domains):
             score += 3.5
-        if any(marker in domain for marker in _SOCIAL_DOMAINS):
+        if any(marker in domain for marker in rules.social_domains):
             score += 3.5
         if "forum" in domain or "forums." in domain:
             score -= 1.5
     elif profile == "tech_community":
-        if any(marker in domain for marker in _TECH_COMMUNITY_DOMAINS):
+        if any(marker in domain for marker in rules.tech_community_domains):
             score += 4.5
-        if any(marker in domain for marker in _NEWS_DOMAINS):
+        if any(marker in domain for marker in rules.news_domains):
             score += 0.8
         if "github.com" in url_lower and any(marker in url_lower for marker in ("/issues", "/pull", "/releases")):
             score += 2.0
@@ -423,19 +445,20 @@ def _source_profile_domain_cap(source_profile: str, default_cap: int = 2) -> int
 
 
 def _matches_source_profile_domain(domain: str, source_profile: str) -> bool:
+    rules = _domain_rules()
     profile = (source_profile or "general").strip().lower()
     if profile == "official_news":
-        return any(marker in domain for marker in _NEWS_DOMAINS)
+        return any(marker in domain for marker in rules.news_domains)
     if profile == "social_realtime":
-        return any(marker in domain for marker in _SOCIAL_DOMAINS)
+        return any(marker in domain for marker in rules.social_domains)
     if profile == "official_plus_social":
-        return any(marker in domain for marker in _NEWS_DOMAINS + _SOCIAL_DOMAINS)
+        return any(marker in domain for marker in rules.news_domains + rules.social_domains)
     if profile == "tech_community":
-        return any(marker in domain for marker in _TECH_COMMUNITY_DOMAINS)
+        return any(marker in domain for marker in rules.tech_community_domains)
     return False
 
 
-def _build_site_filter_clause(tool_context: Optional[Dict], limit: int = 2) -> str:
+def _build_site_filter_clause(tool_context: dict | None, limit: int = 2) -> str:
     preferred_domains = list(dict.fromkeys(
         str(item).strip().lower()
         for item in (tool_context or {}).get("preferred_domains", [])
@@ -446,20 +469,19 @@ def _build_site_filter_clause(tool_context: Optional[Dict], limit: int = 2) -> s
 
 
 def _is_low_value_result(url: str, title: str, content: str = "") -> bool:
+    rules = _domain_rules()
     url_lower = url.lower()
     title_lower = title.lower()
     content_lower = content.lower()
 
-    if any(hint in url_lower for hint in _LOW_VALUE_RESULT_HINTS):
+    if any(hint in url_lower for hint in rules.low_value_result_hints):
         return True
-    if any(hint in title_lower for hint in _LOW_VALUE_TITLE_HINTS):
+    if any(hint in title_lower for hint in rules.low_value_title_hints):
         return True
-    if "github.com" in url_lower and not any(
+    return "github.com" in url_lower and not any(
         term in title_lower or term in content_lower
         for term in ("best practice", "guide", "tutorial", "文档", "教程", "指南")
-    ):
-        return True
-    return False
+    )
 
 
 def _count_query_term_hits(query: str, text: str) -> int:
@@ -471,7 +493,7 @@ def _normalize_domain(url: str) -> str:
     return normalize_domain(url)
 
 
-def _extract_query_terms(query: str) -> List[str]:
+def _extract_query_terms(query: str) -> list[str]:
     return extract_query_terms(query)
 
 
@@ -515,7 +537,7 @@ def _looks_intent_mismatched(query: str, title: str, url: str, content: str, int
     return False
 
 
-def _build_refined_query(query: str, intent_plan: Optional[Dict] = None, tool_context: Optional[Dict] = None) -> str:
+def _build_refined_query(query: str, intent_plan: dict | None = None, tool_context: dict | None = None) -> str:
     if intent_plan and intent_plan.get("rewrite_query"):
         base_query = intent_plan["rewrite_query"]
     else:
@@ -553,7 +575,7 @@ def _build_refined_query(query: str, intent_plan: Optional[Dict] = None, tool_co
     return base_query
 
 
-def _build_recall_boost_query(query: str, intent_plan: Optional[Dict] = None, tool_context: Optional[Dict] = None) -> str:
+def _build_recall_boost_query(query: str, intent_plan: dict | None = None, tool_context: dict | None = None) -> str:
     intent = (intent_plan or {}).get("intent", "general")
     query_lower = query.lower()
     if intent == "howto":
@@ -588,7 +610,7 @@ def _build_recall_boost_query(query: str, intent_plan: Optional[Dict] = None, to
     return base_query
 
 
-def _should_trigger_second_pass(results: List[Dict], actual_max_results: int) -> bool:
+def _should_trigger_second_pass(results: list[dict], actual_max_results: int) -> bool:
     if not results:
         return False
 
@@ -601,16 +623,14 @@ def _should_trigger_second_pass(results: List[Dict], actual_max_results: int) ->
     return low_value_count >= 2 and good_count < max(2, actual_max_results // 2)
 
 
-def _needs_recall_boost(results: List[Dict], actual_max_results: int, intent_plan: Optional[Dict]) -> bool:
+def _needs_recall_boost(results: list[dict], actual_max_results: int, intent_plan: dict | None) -> bool:
     if len(results) < actual_max_results:
         return True
     intent = (intent_plan or {}).get("intent", "general")
-    if intent in {"howto", "explanation"} and len(results) < max(2, actual_max_results):
-        return True
-    return False
+    return intent in {"howto", "explanation"} and len(results) < max(2, actual_max_results)
 
 
-def _needs_source_profile_boost(results: List[Dict], tool_context: Optional[Dict]) -> bool:
+def _needs_source_profile_boost(results: list[dict], tool_context: dict | None) -> bool:
     source_profile = str((tool_context or {}).get("source_profile") or "general").strip().lower()
     if source_profile not in {"social_realtime", "official_plus_social", "tech_community"}:
         return False
@@ -621,9 +641,9 @@ def _needs_source_profile_boost(results: List[Dict], tool_context: Optional[Dict
 
 
 def _merge_search_results(
-    primary_results: List[Dict], refined_results: List[Dict], max_results: int
-) -> List[Dict]:
-    merged: List[Dict] = []
+    primary_results: list[dict], refined_results: list[dict], max_results: int
+) -> list[dict]:
+    merged: list[dict] = []
     seen_urls = set()
 
     ordered_groups = [
@@ -651,8 +671,8 @@ def _estimate_result_quality(
     title: str,
     url: str,
     content: str,
-    intent_plan: Optional[Dict] = None,
-    tool_context: Optional[Dict] = None,
+    intent_plan: dict | None = None,
+    tool_context: dict | None = None,
 ) -> float:
     """
     搜索结果轻量质量分：
@@ -660,6 +680,7 @@ def _estimate_result_quality(
     - 明显低价值/壳页减分
     - 有有效 title/snippet 加分
     """
+    rules = _domain_rules()
     score = 0.0
     url_lower = url.lower()
     title_lower = title.lower()
@@ -685,15 +706,14 @@ def _estimate_result_quality(
     if source_profile in {"social_realtime", "official_plus_social"}:
         if query_term_hits == 0:
             score -= 10.0
-        if not (
-            any(marker in domain for marker in _SOCIAL_DOMAINS)
-            or any(marker in domain for marker in _NEWS_DOMAINS)
-        ):
+        has_social_domain = any(marker in domain for marker in rules.social_domains)
+        has_news_domain = any(marker in domain for marker in rules.news_domains)
+        if not (has_social_domain or has_news_domain):
             score -= 4.0
     elif source_profile == "tech_community" and query_term_hits == 0:
         score -= 6.0
 
-    for idx, preferred in enumerate(_PREFERRED_DOMAINS):
+    for idx, preferred in enumerate(rules.preferred_domains):
         if preferred in domain or preferred in url_lower:
             score += max(12 - idx * 0.3, 6)
             break
@@ -703,7 +723,7 @@ def _estimate_result_quality(
     if content:
         score += min(len(content) / 80, 2.5)
 
-    if any(hint in url_lower for hint in _LOW_VALUE_URL_HINTS):
+    if any(hint in url_lower for hint in rules.low_value_url_hints):
         score -= 4.0
 
     if _is_low_value_result(url, title, content):
@@ -718,30 +738,47 @@ def _estimate_result_quality(
         if any(marker in url_lower for marker in ("wikipedia.org", "baike.baidu.com")):
             score -= 1.5
     elif intent == "technical":
-        if any(marker in domain for marker in ("docs.python.org", "developer.", "go.dev", "developer.mozilla.org", "redis.io")):
+        tech_official_domains = (
+            "docs.python.org",
+            "developer.",
+            "go.dev",
+            "developer.mozilla.org",
+            "redis.io",
+        )
+        if any(marker in domain for marker in tech_official_domains):
             score += 4.0
         elif any(marker in domain for marker in ("cnblogs.com", "csdn.net", "juejin.cn", "segmentfault.com")):
             score += 1.6
         if any(marker in url_lower for marker in ("stackoverflow.com/questions", "github.com/")):
             score -= 1.2
     if source_profile == "tech_community":
-        if any(marker in domain for marker in ("docs.python.org", "developer.", "go.dev", "developer.mozilla.org", "redis.io")):
+        tech_official_domains = (
+            "docs.python.org",
+            "developer.",
+            "go.dev",
+            "developer.mozilla.org",
+            "redis.io",
+        )
+        if any(marker in domain for marker in tech_official_domains):
             score += 3.0
         elif any(marker in domain for marker in ("cnblogs.com", "csdn.net", "juejin.cn", "segmentfault.com")):
             score += 0.8
     elif intent == "howto":
         if any(marker in domain for marker in ("meishichina.com", "xiachufang.com", "xiangha.com", "dachu.co")):
             score += 5.0
-        elif not any(marker in domain for marker in _RECIPE_DOMAINS):
+        elif not any(marker in domain for marker in rules.recipe_domains):
             score -= 1.5
     elif intent == "explanation":
         if any(marker in url_lower for marker in ("baike.baidu.com", "wikipedia.org")):
             score += 2.5
-        if any(marker in domain for marker in _SCIENCE_DOMAINS):
+        if any(marker in domain for marker in rules.science_domains):
             score += 1.2
-    elif intent == "general" and any(term in query.lower() for term in ("评测", "续航", "review")):
-        if any(marker in domain for marker in _PRODUCT_DOMAINS):
-            score += 2.0
+    elif (
+        intent == "general"
+        and any(term in query.lower() for term in ("评测", "续航", "review"))
+        and any(marker in domain for marker in rules.product_domains)
+    ):
+        score += 2.0
 
     suspicious_terms = [
         "app下载",

@@ -1,7 +1,10 @@
-from typing import Any, Dict
+from typing import Any
 
 
-def normalize_openai_compatible_url(api_url: str, default_url: str = "http://127.0.0.1:1234/v1/chat/completions") -> str:
+def normalize_openai_compatible_url(
+    api_url: str,
+    default_url: str = "http://127.0.0.1:1234/v1/chat/completions",
+) -> str:
     normalized = (api_url or default_url).rstrip("/")
     if normalized.endswith("/v1/chat/completions"):
         return normalized
@@ -11,7 +14,7 @@ def normalize_openai_compatible_url(api_url: str, default_url: str = "http://127
 
 
 
-def extract_openai_content(data: Dict[str, Any]) -> str:
+def extract_openai_content(data: dict[str, Any]) -> str:
     try:
         content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
     except Exception:

@@ -1,15 +1,16 @@
-from typing import List, Dict, Optional
+
 from my_ai_search.config import get_config
-from my_ai_search.utils.logger import setup_logger
 from my_ai_search.utils.exceptions import VectorException
-from .vector import get_collection, init_vector_db
+from my_ai_search.utils.logger import setup_logger
+
+from .vector import get_collection
 
 logger = setup_logger("vector_query")
 
 
 def search(
-    query: str, top_k: Optional[int] = None, filter_metadata: Optional[Dict] = None
-) -> List[Dict]:
+    query: str, top_k: int | None = None, filter_metadata: dict | None = None
+) -> list[dict]:
     """
     纯向量语义检索
 
@@ -59,15 +60,15 @@ def search(
 
     except Exception as e:
         logger.error(f"Semantic search failed: {e}")
-        raise VectorException(f"Semantic search failed: {e}")
+        raise VectorException(f"Semantic search failed: {e}") from e
 
 
 def hybrid_search(
     query: str,
-    top_k: Optional[int] = None,
-    filter_metadata: Optional[Dict] = None,
+    top_k: int | None = None,
+    filter_metadata: dict | None = None,
     alpha: float = 0.7,
-) -> List[Dict]:
+) -> list[dict]:
     """
     混合检索（向量+关键词）
 
@@ -90,8 +91,6 @@ def hybrid_search(
     logger.info(f"Hybrid search: query='{query}', top_k={actual_top_k}, alpha={alpha}")
 
     try:
-        collection = get_collection()
-
         vector_results = search(
             query, top_k=actual_top_k * 2, filter_metadata=filter_metadata
         )
@@ -114,10 +113,10 @@ def hybrid_search(
 
     except Exception as e:
         logger.error(f"Hybrid search failed: {e}")
-        raise VectorException(f"Hybrid search failed: {e}")
+        raise VectorException(f"Hybrid search failed: {e}") from e
 
 
-def _parse_search_results(results: Dict) -> List[Dict]:
+def _parse_search_results(results: dict) -> list[dict]:
     """
     解析ChromaDB查询结果
     """
@@ -148,9 +147,9 @@ def _parse_search_results(results: Dict) -> List[Dict]:
 def _keyword_search(
     query: str,
     top_k: int,
-    filter_metadata: Optional[Dict] = None,
-    candidate_ids: Optional[List[str]] = None,
-) -> List[Dict]:
+    filter_metadata: dict | None = None,
+    candidate_ids: list[str] | None = None,
+) -> list[dict]:
     """
     关键词搜索（基于文本匹配）
 
@@ -165,10 +164,7 @@ def _keyword_search(
     try:
         collection = get_collection()
 
-        if candidate_ids:
-            all_docs = collection.get(ids=candidate_ids)
-        else:
-            all_docs = collection.get()
+        all_docs = collection.get(ids=candidate_ids) if candidate_ids else collection.get()
 
         if not all_docs["ids"]:
             return []
@@ -239,8 +235,8 @@ def _calculate_keyword_score(query: str, document: str) -> float:
 
 
 def _merge_and_rank(
-    vector_results: List[Dict], keyword_results: List[Dict], alpha: float = 0.7
-) -> List[Dict]:
+    vector_results: list[dict], keyword_results: list[dict], alpha: float = 0.7
+) -> list[dict]:
     """
     合并向量搜索和关键词搜索结果，并重排序
 
@@ -279,7 +275,7 @@ def _merge_and_rank(
     return merged
 
 
-def search_by_ids(ids: List[str]) -> List[Dict]:
+def search_by_ids(ids: list[str]) -> list[dict]:
     """
     根据文档ID列表检索
 
@@ -311,4 +307,4 @@ def search_by_ids(ids: List[str]) -> List[Dict]:
 
     except Exception as e:
         logger.error(f"Search by IDs failed: {e}")
-        raise VectorException(f"Search by IDs failed: {e}")
+        raise VectorException(f"Search by IDs failed: {e}") from e

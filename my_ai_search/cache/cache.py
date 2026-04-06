@@ -1,14 +1,13 @@
 import hashlib
 import time
 from datetime import datetime
-from typing import Optional, Dict
 
 import chromadb
 from chromadb.utils import embedding_functions
 
 from my_ai_search.config import get_config
-from my_ai_search.utils.logger import setup_logger
 from my_ai_search.utils.exceptions import CacheException
+from my_ai_search.utils.logger import setup_logger
 from my_ai_search.vector.vector import _resolve_model_path
 
 logger = setup_logger("cache")
@@ -116,7 +115,7 @@ def is_cached(url: str) -> bool:
         return False
 
 
-def get_cached(url: str) -> Optional[Dict]:
+def get_cached(url: str) -> dict | None:
     """
     获取缓存内容
 
@@ -188,7 +187,7 @@ def get_cached(url: str) -> Optional[Dict]:
         return None
 
 
-def set_cache(url: str, html: str, title: str = "", ttl: Optional[int] = None):
+def set_cache(url: str, html: str, title: str = "", ttl: int | None = None):
     """
     设置缓存
 
@@ -271,10 +270,10 @@ def set_cache(url: str, html: str, title: str = "", ttl: Optional[int] = None):
 
     except Exception as e:
         logger.error(f"Failed to set cache: {e}")
-        raise CacheException(f"Cache setting failed: {e}")
+        raise CacheException(f"Cache setting failed: {e}") from e
 
 
-def get_cache_stats() -> Dict:
+def get_cache_stats() -> dict:
     """
     获取缓存统计信息（MCP API适配格式）
 
@@ -350,4 +349,4 @@ def clear_cache():
 
     except Exception as e:
         logger.error(f"Failed to clear cache: {e}")
-        raise CacheException(f"Cache clearing failed: {e}")
+        raise CacheException(f"Cache clearing failed: {e}") from e

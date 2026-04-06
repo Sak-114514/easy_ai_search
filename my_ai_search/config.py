@@ -1,7 +1,8 @@
+import json
 import os
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Optional
+
 from my_ai_search.utils.paths import (
     ensure_runtime_dirs,
     get_cache_db_dir,
@@ -24,6 +25,162 @@ class SearXNGConfig:
             self.timeout = float(os.getenv("SEARXNG_TIMEOUT"))
         if os.getenv("SEARXNG_MAX_RESULTS"):
             self.max_results = int(os.getenv("SEARXNG_MAX_RESULTS"))
+
+
+@dataclass
+class SearchConfig:
+    cache_ttl: int = 300
+    cache_max_entries: int = 128
+    domain_rules_path: str = ""
+    preferred_domains: tuple[str, ...] = (
+        "wikipedia.org",
+        "baike.baidu.com",
+        "docs.python.org",
+        "rust-lang.org",
+        "go.dev",
+        "developer.mozilla.org",
+        "mozilla.org",
+        "github.com",
+        "stackoverflow.com",
+        "csdn.net",
+        "cnblogs.com",
+        "juejin.cn",
+        "segmentfault.com",
+        "runoob.com",
+        "w3school",
+        "harmonyos.com",
+        "developer.huawei.com",
+        "meishichina.com",
+        "xiangha.com",
+        "xiachufang.com",
+        "dachu.co",
+    )
+    blocked_domains: tuple[str, ...] = (
+        "pinterest.com",
+        "quora.com/unanswered",
+        "zhihu.com",
+        "zhuanlan.zhihu.com",
+        "pornhub.com",
+        "apps.microsoft.com",
+        "onlinedown.net",
+        "bokep",
+    )
+    blocked_title_patterns: tuple[str, ...] = (
+        "just a moment",
+        "sign in to your account",
+        "登录",
+        "注册",
+        "open enrollment",
+    )
+    low_value_url_hints: tuple[str, ...] = ("/video/", "/shorts/")
+    low_value_result_hints: tuple[str, ...] = (
+        "github.com/",
+        "/pulls",
+        "/issues",
+        "/releases",
+        "reddit.com/r/",
+        "/comments/",
+        "bilibili.com/video/",
+        "haokan.baidu.com/v",
+        "quanmin.baidu.com/sv",
+    )
+    low_value_title_hints: tuple[str, ...] = (
+        "pull requests",
+        "issues",
+        "discussion",
+        "comments",
+        "论坛",
+        "社区",
+        "视频",
+    )
+    recipe_domains: tuple[str, ...] = (
+        "meishichina.com",
+        "xiangha.com",
+        "xiachufang.com",
+        "dachu.co",
+        "douguo.com",
+    )
+    science_domains: tuple[str, ...] = (
+        "wikipedia.org",
+        "baike.baidu.com",
+        "163.com",
+        "sohu.com",
+        "news.qq.com",
+    )
+    product_domains: tuple[str, ...] = (
+        "36kr.com",
+        "zol.com.cn",
+        "ithome.com",
+        "pcbeta.com",
+        "theverge.com",
+        "engadget.com",
+    )
+    news_domains: tuple[str, ...] = (
+        "reuters.com",
+        "apnews.com",
+        "finance.sina.com.cn",
+        "news.qq.com",
+        "36kr.com",
+        "ithome.com",
+        "theverge.com",
+        "techcrunch.com",
+        "cn.dataconomy.com",
+    )
+    social_domains: tuple[str, ...] = (
+        "x.com",
+        "twitter.com",
+        "weibo.com",
+        "reddit.com",
+        "news.ycombinator.com",
+        "mastodon.social",
+    )
+    tech_community_domains: tuple[str, ...] = (
+        "github.com",
+        "stackoverflow.com",
+        "reddit.com",
+        "news.ycombinator.com",
+        "juejin.cn",
+        "csdn.net",
+        "cnblogs.com",
+        "segmentfault.com",
+    )
+
+    def __post_init__(self):
+        if os.getenv("SEARCH_CACHE_TTL"):
+            self.cache_ttl = int(os.getenv("SEARCH_CACHE_TTL"))
+        if os.getenv("SEARCH_CACHE_MAX_ENTRIES"):
+            self.cache_max_entries = int(os.getenv("SEARCH_CACHE_MAX_ENTRIES"))
+        if os.getenv("SEARCH_DOMAIN_RULES_PATH"):
+            self.domain_rules_path = os.getenv("SEARCH_DOMAIN_RULES_PATH")
+        if self.domain_rules_path:
+            self.domain_rules_path = resolve_runtime_path(
+                self.domain_rules_path,
+                get_vector_db_dir().parent,
+            )
+            self._load_domain_rules()
+
+    def _load_domain_rules(self):
+        if not os.path.isfile(self.domain_rules_path):
+            return
+        with open(self.domain_rules_path, encoding="utf-8") as handle:
+            payload = json.load(handle)
+        for field_name in (
+            "preferred_domains",
+            "blocked_domains",
+            "blocked_title_patterns",
+            "low_value_url_hints",
+            "low_value_result_hints",
+            "low_value_title_hints",
+            "recipe_domains",
+            "science_domains",
+            "product_domains",
+            "news_domains",
+            "social_domains",
+            "tech_community_domains",
+        ):
+            value = payload.get(field_name)
+            if value is not None:
+                setattr(self, field_name, tuple(str(item) for item in value))
 
 
 @dataclass
@@ -181,6 +338,7 @@ class LogConfig:
 @dataclass
 class AppConfig:
     searxng: SearXNGConfig
+    search: SearchConfig
     lightpanda: LightPandaConfig
     chroma: ChromaConfig
     process: ProcessConfig
@@ -192,6 +350,7 @@ class AppConfig:
 def _config_cache_token() -> tuple[str, ...]:
     prefixes = (
         "SEARXNG_",
+        "SEARCH_",
         "LIGHTPANDA_",
         "CHROMA_",
         "TEXT_",
@@ -215,6 +374,7 @@ def _build_config(_: tuple[str, ...]) -> AppConfig:
     ensure_runtime_dirs()
     return AppConfig(
         searxng=SearXNGConfig(),
+        search=SearchConfig(),
         lightpanda=LightPandaConfig(),
         chroma=ChromaConfig(),
         process=ProcessConfig(),

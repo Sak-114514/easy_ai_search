@@ -5,8 +5,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from vector.vector import init_vector_db, store_documents, clear_collection
-from vector.vector_query import search, hybrid_search, search_by_ids
+from vector.vector import clear_collection, init_vector_db, store_documents
+from vector.vector_query import hybrid_search, search, search_by_ids
 
 
 def test_semantic_search():
@@ -64,7 +64,11 @@ def test_hybrid_search():
 
     for result in results:
         print(
-            f"Score: {result['score']:.2f} (Vector: {result['vector_score']:.2f}, Keyword: {result['keyword_score']:.2f})"
+            "Score: {score:.2f} (Vector: {vector:.2f}, Keyword: {keyword:.2f})".format(
+                score=result["score"],
+                vector=result["vector_score"],
+                keyword=result["keyword_score"],
+            )
         )
         print(f"Text: {result['text'][:50]}...")
 
