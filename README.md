@@ -64,6 +64,8 @@ bash deployment/scripts/release_check.sh
 详细交付说明见：
 - [发布指南](docs/RELEASE_GUIDE.md)
 - [Agent 接入指南](docs/AGENT_INTEGRATION.md)
+- [二次开发指南](docs/DEVELOPER_GUIDE.md)
+- [抓取 / 清洗优化实施说明](docs/CRAWL_CLEANING_OPTIMIZATION.md)
 
 ---
 
